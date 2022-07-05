@@ -21,7 +21,7 @@ KInstruction::~KInstruction() {
 
 std::string KInstruction::getSourceLocation() const {
   if (!info->file.empty())
-    return info->file + ":" + std::to_string(info->line) + " " +
+    return info->file + ":l" + std::to_string(info->line) + ":c" +
            std::to_string(info->column);
   else return "[no debug info]";
 }
