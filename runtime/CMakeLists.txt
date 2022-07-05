@@ -71,6 +71,8 @@ message(STATUS "KLEE_RUNTIME_DIRECTORY: ${KLEE_RUNTIME_DIRECTORY}")
 # important to compile it with -D_FORTIFY_SOURCE=0 to avoid infinite
 # recursion
 set(COMMON_CC_FLAGS
+        -isysroot
+        /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk
         "-I${CMAKE_SOURCE_DIR}/include"
         "-I${CMAKE_BINARY_DIR}/include"
         -D_FORTIFY_SOURCE=0
