@@ -413,6 +413,12 @@ llvm::cl::bits<PrintDebugInstructionsType> DebugPrintInstructions(
     llvm::cl::CommaSeparated,
     cl::cat(DebugCat));
 
+cl::opt<bool> DebugExecutionTrace(
+    "debug-execution-trace",
+    cl::init(false),
+    cl::desc("Log (very verbose) execution trace (default=false)."),
+    cl::cat(DebugCat));
+
 #ifdef HAVE_ZLIB_H
 cl::opt<bool> DebugCompressInstructions(
     "debug-compress-instructions", cl::init(false),
@@ -489,6 +495,17 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
 #endif
     if (!debugInstFile) {
       klee_error("Could not open file %s : %s", debug_file_name.c_str(),
+                 error.c_str());
+    }
+  }
+
+  if (DebugExecutionTrace) {
+    std::string debugExecTraceFileName =
+        interpreterHandler->getOutputFilename("execution.txt");
+    std::string error;
+    debugExecTraceFile = klee_open_output_file(debugExecTraceFileName, error);
+    if (!debugExecTraceFile) {
+      klee_error("Could not open file %s : %s", debugExecTraceFileName.c_str(),
                  error.c_str());
     }
   }
@@ -1398,8 +1415,16 @@ void Executor::printDebugInstructions(ExecutionState &state) {
   }
 }
 
+void Executor::printExecutionTrace(ExecutionState &state) {
+  if (!DebugExecutionTrace)
+    return;
+
+  (*debugExecTraceFile) << "Hello!";
+}
+
 void Executor::stepInstruction(ExecutionState &state) {
   printDebugInstructions(state);
+  printExecutionTrace(state);
   if (statsTracker)
     statsTracker->stepInstruction(state);
 

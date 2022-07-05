@@ -193,6 +193,9 @@ private:
   /// File to print executed instructions to
   std::unique_ptr<llvm::raw_ostream> debugInstFile;
 
+  /// File to print execution trace to
+  std::unique_ptr<llvm::raw_ostream> debugExecTraceFile;
+
   // @brief Buffer used by logBuffer
   std::string debugBufferString;
 
@@ -479,6 +482,8 @@ private:
   /// Only for debug purposes; enable via debugger or klee-control
   void dumpStates();
   void dumpPTree();
+
+  void printExecutionTrace(ExecutionState &state);
 
 public:
   Executor(llvm::LLVMContext &ctx, const InterpreterOptions &opts,
