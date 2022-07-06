@@ -1415,16 +1415,75 @@ void Executor::printDebugInstructions(ExecutionState &state) {
   }
 }
 
-void Executor::printExecutionTrace(ExecutionState &state) {
+void Executor::printTraceBeforeExecution(ExecutionState &state,
+                                         KInstruction* ki) {
   if (!DebugExecutionTrace)
     return;
 
-  (*debugExecTraceFile) << "Hello!";
+  // Borrowing a few bits from printDebugInstructions for now...
+  llvm::raw_ostream *stream = &debugLogBuffer;
+
+  // TODO: Use consistent spacing for all lines
+  (*stream) << ki->getSourceLocation() << ' ';
+  (*stream) << "ll" << ki->info->assemblyLine << ' ';
+  (*stream) << 's' << state.getID() << ' ';
+  // Instruction includes 2 space prefix for some reason...
+  (*stream) << *(ki->inst);
+  (*stream) << '\n';
+
+  for (
+    unsigned int operandIndex = 0;
+    operandIndex < ki->inst->getNumOperands();
+    operandIndex++
+  ) {
+    int vnumber = ki->operands[operandIndex];
+    if (vnumber == -1) {
+      // Operand unavailable, e.g. for ignored things like debug intrinsics
+      continue;
+    }
+    const Cell &operand = eval(ki, operandIndex, state);
+    if (operand.value) {
+      (*stream) << "  oper" << operandIndex << ": " << operand.value << '\n';
+    }
+  }
+
+  debugLogBuffer.flush();
+  (*debugExecTraceFile) << debugLogBuffer.str();
+  debugBufferString = "";
+}
+
+void Executor::printTraceAfterExecution(ExecutionState &state,
+                                        KInstruction* ki) {
+  if (!DebugExecutionTrace)
+    return;
+
+  const unsigned int opcode = ki->inst->getOpcode();
+  if (
+    opcode == Instruction::Ret ||
+    opcode == Instruction::Br ||
+    opcode == Instruction::IndirectBr ||
+    opcode == Instruction::Switch
+  ) {
+    // TODO: Handle control flow...?
+    return;
+  }
+
+  // Borrowing a few bits from printDebugInstructions for now...
+  llvm::raw_ostream *stream = &debugLogBuffer;
+
+  // TODO: Add more specialised logging for memory ops etc.
+  const Cell &dest = getDestCell(state, ki);
+  if (dest.value) {
+    (*stream) << "  dest = " << dest.value << '\n';
+  }
+
+  debugLogBuffer.flush();
+  (*debugExecTraceFile) << debugLogBuffer.str();
+  debugBufferString = "";
 }
 
 void Executor::stepInstruction(ExecutionState &state) {
   printDebugInstructions(state);
-  printExecutionTrace(state);
   if (statsTracker)
     statsTracker->stepInstruction(state);
 
@@ -3559,7 +3618,9 @@ void Executor::run(ExecutionState &initialState) {
     KInstruction *ki = state.pc;
     stepInstruction(state);
 
+    printTraceBeforeExecution(state, ki);
     executeInstruction(state, ki);
+    printTraceAfterExecution(state, ki);
     timers.invoke();
     if (::dumpStates) dumpStates();
     if (::dumpPTree) dumpPTree();

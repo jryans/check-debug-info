@@ -483,7 +483,8 @@ private:
   void dumpStates();
   void dumpPTree();
 
-  void printExecutionTrace(ExecutionState &state);
+  void printTraceBeforeExecution(ExecutionState &state, KInstruction *ki);
+  void printTraceAfterExecution(ExecutionState &state, KInstruction *ki);
 
 public:
   Executor(llvm::LLVMContext &ctx, const InterpreterOptions &opts,
