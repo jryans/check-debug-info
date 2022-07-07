@@ -31,6 +31,7 @@
 #include "klee/Core/Interpreter.h"
 #include "klee/Expr/ArrayExprOptimizer.h"
 #include "klee/Expr/Assignment.h"
+#include "klee/Expr/Constraints.h"
 #include "klee/Expr/Expr.h"
 #include "klee/Expr/ExprPPrinter.h"
 #include "klee/Expr/ExprSMTLIBPrinter.h"
@@ -1430,6 +1431,9 @@ void Executor::printTraceBeforeExecution(ExecutionState &state,
   // Instruction includes 2 space prefix for some reason...
   (*stream) << *(ki->inst);
   (*stream) << '\n';
+
+  // Print state constraints (includes trailing new line)
+  (*stream) << "  const: " << state.constraints;
 
   for (
     unsigned int operandIndex = 0;
