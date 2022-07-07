@@ -11,6 +11,8 @@
 #define KLEE_CONSTRAINTS_H
 
 #include "klee/Expr/Expr.h"
+#include "klee/Expr/ExprPPrinter.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace klee {
 
@@ -43,6 +45,21 @@ public:
 private:
   constraints_ty constraints;
 };
+
+inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
+                                     const ConstraintSet &cs) {
+  ExprPPrinter::printConstraints(os, cs);
+  return os;
+}
+
+inline std::stringstream &operator<<(std::stringstream &os,
+                                     const ConstraintSet &cs) {
+  std::string str;
+  llvm::raw_string_ostream TmpStr(str);
+  ExprPPrinter::printConstraints(TmpStr, cs);
+  os << TmpStr.str();
+  return os;
+}
 
 class ExprVisitor;
 
