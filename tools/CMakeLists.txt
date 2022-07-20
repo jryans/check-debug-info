@@ -6,6 +6,7 @@
 # License. See LICENSE.TXT for details.
 #
 #===------------------------------------------------------------------------===#
+add_subdirectory(debug-info-test)
 add_subdirectory(ktest-gen)
 add_subdirectory(ktest-randgen)
 add_subdirectory(kleaver)
