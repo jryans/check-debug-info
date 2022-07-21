@@ -6,9 +6,9 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <cstdlib>
-#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -61,10 +61,9 @@ int main(int argc, char **argv) {
     // don't plan to support that case over here for now.
     bool match = beforeModules.size() == afterModules.size();
     summary &= match;
-    std::cout << (match ? "✅ " : "🐣 ");
-    std::cout << beforeModules.size() << " before module(s), ";
-    std::cout << afterModules.size() << " after module(s)";
-    std::cout << std::endl;
+    outs() << (match ? "✅ " : "🐣 ");
+    outs() << beforeModules.size() << " before module(s), ";
+    outs() << afterModules.size() << " after module(s)\n";
   }
 
   if (beforeModules.size() > 1 || afterModules.size() > 1) {
@@ -72,12 +71,11 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  std::cout << std::endl;
+  outs() << "\n";
   if (summary) {
-    std::cout << "🎉 All consistency checks passed";
+    outs() << "🎉 All consistency checks passed\n";
   } else {
-    std::cout << "🔔 Some consistency checks failed";
+    outs() << "🔔 Some consistency checks failed\n";
   }
-  std::cout << std::endl;
   return summary ? EXIT_SUCCESS : EXIT_FAILURE;
 }
