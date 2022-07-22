@@ -75,20 +75,36 @@ int main(int argc, char **argv) {
   const auto &beforeModule = beforeModules[0];
   const auto &afterModule = afterModules[0];
 
+  const auto &beforeFunctions = beforeModule->getFunctionList();
+  const auto &afterFunctions = afterModule->getFunctionList();
+
+  const auto beforeDefinitionCount = count_if(
+      beforeFunctions, [](const Function &F) { return !F.isDeclaration(); });
+  const auto afterDefinitionCount = count_if(
+      afterFunctions, [](const Function &F) { return !F.isDeclaration(); });
+
   {
-    const auto &beforeFunctions = beforeModule->getFunctionList();
-    const auto &afterFunctions = afterModule->getFunctionList();
-
-    const auto beforeDefinitionCount = count_if(
-        beforeFunctions, [](const Function &F) { return !F.isDeclaration(); });
-    const auto afterDefinitionCount = count_if(
-        afterFunctions, [](const Function &F) { return !F.isDeclaration(); });
-
     bool match = beforeDefinitionCount == afterDefinitionCount;
     summary &= match;
     outs() << (match ? "✅ " : "🐣 ");
     outs() << beforeDefinitionCount << " before defined functions(s), ";
     outs() << afterDefinitionCount << " after defined functions(s)\n";
+  }
+
+  if (beforeDefinitionCount > 1 || afterDefinitionCount > 1) {
+    outs() << "🔔 At the moment, only the first function is checked\n";
+  }
+
+  {
+    const auto &beforeDefinition = *find_if(
+        beforeFunctions, [](const Function &F) { return !F.isDeclaration(); });
+    const auto &afterDefinition = *find_if(
+        afterFunctions, [](const Function &F) { return !F.isDeclaration(); });
+    bool match = beforeDefinition.getName() == afterDefinition.getName();
+    summary &= match;
+    outs() << (match ? "✅ " : "🐣 ");
+    outs() << "First before function: `" << beforeDefinition.getName() << "`, ";
+    outs() << "first after function: `" << afterDefinition.getName() << "`\n";
   }
 
   outs() << "\n";
