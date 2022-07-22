@@ -2,6 +2,7 @@
 #include "klee/Support/ModuleUtil.h"
 #include "klee/Support/PrintVersion.h"
 
+#include "llvm/IR/Function.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/CommandLine.h"
@@ -69,6 +70,25 @@ int main(int argc, char **argv) {
   if (beforeModules.size() > 1 || afterModules.size() > 1) {
     klee_error("This tool does not support programs with multiple modules.");
     return EXIT_FAILURE;
+  }
+
+  const auto &beforeModule = beforeModules[0];
+  const auto &afterModule = afterModules[0];
+
+  {
+    const auto &beforeFunctions = beforeModule->getFunctionList();
+    const auto &afterFunctions = afterModule->getFunctionList();
+
+    const auto beforeDefinitionCount = count_if(
+        beforeFunctions, [](const Function &F) { return !F.isDeclaration(); });
+    const auto afterDefinitionCount = count_if(
+        afterFunctions, [](const Function &F) { return !F.isDeclaration(); });
+
+    bool match = beforeDefinitionCount == afterDefinitionCount;
+    summary &= match;
+    outs() << (match ? "✅ " : "🐣 ");
+    outs() << beforeDefinitionCount << " before defined functions(s), ";
+    outs() << afterDefinitionCount << " after defined functions(s)\n";
   }
 
   outs() << "\n";
