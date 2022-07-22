@@ -1,4 +1,4 @@
-add_executable(debug-info-test
+add_executable(debug-info-check
   main.cpp
 )
 
@@ -6,6 +6,6 @@ set(KLEE_LIBS
   kleeCore
 )
 
-target_link_libraries(debug-info-test ${KLEE_LIBS})
+target_link_libraries(debug-info-check ${KLEE_LIBS})
 
-install(TARGETS debug-info-test RUNTIME DESTINATION bin)
+install(TARGETS debug-info-check RUNTIME DESTINATION bin)

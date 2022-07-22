@@ -19,7 +19,7 @@ using namespace llvm;
 
 namespace {
 
-cl::OptionCategory debugInfoTestCategory("Debug info consistency options");
+cl::OptionCategory debugInfoCheckCategory("Debug info consistency options");
 
 cl::opt<std::string>
     beforeFile(cl::Positional, cl::Required,
@@ -35,9 +35,9 @@ int main(int argc, char **argv) {
   InitLLVM x(argc, argv);
 
   cl::SetVersionPrinter(printVersion);
-  cl::HideUnrelatedOptions(debugInfoTestCategory);
+  cl::HideUnrelatedOptions(debugInfoCheckCategory);
 
-  cl::ParseCommandLineOptions(argc, argv, "Debug info consistency test\n");
+  cl::ParseCommandLineOptions(argc, argv, "Debug info consistency check\n");
 
   LLVMContext ctx;
   std::string error;
