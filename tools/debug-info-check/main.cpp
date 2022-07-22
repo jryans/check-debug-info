@@ -91,6 +91,11 @@ int main(int argc, char **argv) {
     outs() << afterDefinitionCount << " after defined functions(s)\n";
   }
 
+  if (!beforeDefinitionCount || !afterDefinitionCount) {
+    klee_error("Both programs must have at least 1 function");
+    return EXIT_FAILURE;
+  }
+
   if (beforeDefinitionCount > 1 || afterDefinitionCount > 1) {
     outs() << "🔔 At the moment, only the first function is checked\n";
   }
