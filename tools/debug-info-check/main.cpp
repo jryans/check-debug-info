@@ -1,21 +1,32 @@
+#include "klee/Support/Debug.h"
 #include "klee/Support/ErrorHandling.h"
 #include "klee/Support/ModuleUtil.h"
 #include "klee/Support/PrintVersion.h"
 
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/InstIterator.h"
+#include "llvm/IR/Instruction.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <cassert>
 #include <cstdlib>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace klee;
 using namespace llvm;
+
+#define DEBUG_TYPE "debug-info-check"
 
 namespace {
 
@@ -100,16 +111,58 @@ int main(int argc, char **argv) {
     outs() << "🔔 At the moment, only the first function is checked\n";
   }
 
+  const auto &beforeDefinition = *find_if(
+      beforeFunctions, [](const Function &F) { return !F.isDeclaration(); });
+  const auto &afterDefinition = *find_if(
+      afterFunctions, [](const Function &F) { return !F.isDeclaration(); });
+
   {
-    const auto &beforeDefinition = *find_if(
-        beforeFunctions, [](const Function &F) { return !F.isDeclaration(); });
-    const auto &afterDefinition = *find_if(
-        afterFunctions, [](const Function &F) { return !F.isDeclaration(); });
     bool match = beforeDefinition.getName() == afterDefinition.getName();
     summary &= match;
     outs() << (match ? "✅ " : "🐣 ");
     outs() << "First before function: `" << beforeDefinition.getName() << "`, ";
     outs() << "first after function: `" << afterDefinition.getName() << "`\n";
+  }
+
+  // TODO: Actually check live value ranges instead of just comparing
+  // declaration lines.
+  using Variable = std::tuple<llvm::StringRef, unsigned int>;
+  SmallSet<Variable, 8> variables;
+
+  for (const auto &instruction : instructions(beforeDefinition)) {
+    const auto *varIntrinsic = dyn_cast<DbgVariableIntrinsic>(&instruction);
+    if (!varIntrinsic)
+      continue;
+    assert(!isa<DbgAddrIntrinsic>(instruction) &&
+           "Unexpected dbg.addr intrinsic");
+    const DILocalVariable *variable = varIntrinsic->getVariable();
+    assert(variable && "Variable intrinsic without a variable");
+    KLEE_DEBUG(dbgs() << "Before variable `" << variable->getName() << "` ");
+    KLEE_DEBUG(dbgs() << "declared on line " << variable->getLine() << "\n");
+    variables.insert(std::make_tuple(variable->getName(), variable->getLine()));
+  }
+
+  auto variablesFound = variables.size();
+
+  for (const auto &instruction : instructions(afterDefinition)) {
+    const auto *varIntrinsic = dyn_cast<DbgVariableIntrinsic>(&instruction);
+    if (!varIntrinsic)
+      continue;
+    assert(!isa<DbgAddrIntrinsic>(instruction) &&
+           "Unexpected dbg.addr intrinsic");
+    const DILocalVariable *variable = varIntrinsic->getVariable();
+    assert(variable && "Variable intrinsic without a variable");
+    KLEE_DEBUG(dbgs() << "After variable `" << variable->getName() << "` ");
+    KLEE_DEBUG(dbgs() << "declared on line " << variable->getLine() << "\n");
+    variables.erase(std::make_tuple(variable->getName(), variable->getLine()));
+  }
+
+  {
+    bool match = !variables.size();
+    summary &= match;
+    outs() << (match ? "✅ " : "🐣 ");
+    outs() << variablesFound << " variables found, ";
+    outs() << variables.size() << " mismatched\n";
   }
 
   outs() << "\n";
