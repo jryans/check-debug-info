@@ -1,23 +1,34 @@
+#include "klee/Module/InstructionInfoTable.h"
 #include "klee/Support/Debug.h"
 #include "klee/Support/ErrorHandling.h"
 #include "klee/Support/ModuleUtil.h"
 #include "klee/Support/PrintVersion.h"
 
+#include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/IR/DebugInfoMetadata.h"
+#include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instruction.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <algorithm>
 #include <cassert>
+#include <cstdint>
 #include <cstdlib>
+#include <iterator>
+#include <map>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -41,6 +52,114 @@ cl::opt<std::string>
               cl::desc("<program (.bc/.ll) after optimisation>"));
 
 } // namespace
+
+struct Variable {
+  llvm::StringRef name;
+  unsigned int declLine;
+
+  bool operator==(const Variable &other) const {
+    return std::tie(name, declLine) == std::tie(other.name, other.declLine);
+  }
+
+  bool operator<(const Variable &other) const {
+    return std::tie(name, declLine) < std::tie(other.name, other.declLine);
+  }
+};
+
+struct LiveValueRange {
+  unsigned int startLine;
+  unsigned int endLine = UINT32_MAX;
+
+  // Not checked during comparison
+  const Instruction *startInstruction;
+
+  bool operator==(const LiveValueRange &other) const {
+    return std::tie(startLine, endLine) ==
+           std::tie(other.startLine, other.endLine);
+  }
+
+  bool operator<(const LiveValueRange &other) const {
+    return std::tie(startLine, endLine) <
+           std::tie(other.startLine, other.endLine);
+  }
+};
+
+using VariablesSet = SmallSet<Variable, 8>;
+
+// There might be a good match for this in LLVM's data structures, but wasn't
+// quite sure...
+using VariableToLiveValueRanges =
+    std::map<Variable, SmallVector<LiveValueRange>>;
+
+bool gatherLiveValueRanges(
+    const StringRef kind, const Function &function,
+    const InstructionInfoTable &instrInfo, VariablesSet &variables,
+    VariableToLiveValueRanges &variableToLiveValueRanges) {
+  bool summary = true;
+
+  for (const auto &instruction : instructions(function)) {
+    const auto *varIntrinsic = dyn_cast<DbgVariableIntrinsic>(&instruction);
+    if (!varIntrinsic)
+      continue;
+    assert(!isa<DbgAddrIntrinsic>(instruction) &&
+           "Unexpected dbg.addr intrinsic");
+
+    const DILocalVariable *diVariable = varIntrinsic->getVariable();
+    assert(diVariable && "Variable intrinsic without a variable");
+    Variable variable = {diVariable->getName(), diVariable->getLine()};
+    KLEE_DEBUG(dbgs() << kind << " variable `" << variable.name << "` ");
+    KLEE_DEBUG(dbgs() << "declared on line " << variable.declLine << "\n");
+    variables.insert(variable);
+
+    if (const auto *declareIntrinsic = dyn_cast<DbgDeclareInst>(&instruction)) {
+      // Look for stores to the `dbr.declare`'s address
+      // TODO: Review `LowerDbgDeclare` for more cases to handle
+      const Value *address = declareIntrinsic->getAddress();
+      if (!address)
+        continue;
+      for (const auto *addressUse : address->users()) {
+        if (const auto *storeInstruction = dyn_cast<StoreInst>(addressUse)) {
+          KLEE_DEBUG(dbgs() << "Store to `" << variable.name << "`, ");
+          KLEE_DEBUG(dbgs() << "asm line "
+                            << instrInfo.getInfo(*storeInstruction).assemblyLine
+                            << "\n");
+          KLEE_DEBUG(dbgs() << *storeInstruction << "\n");
+
+          auto &liveValueRanges = variableToLiveValueRanges[variable];
+          // TODO: Terminate previous range
+          LiveValueRange range;
+          range.startInstruction = storeInstruction;
+          auto debugLoc = storeInstruction->getDebugLoc();
+          if (debugLoc) {
+            range.startLine = debugLoc.getLine();
+          } else if (!liveValueRanges.size()) {
+            // If there are no other ranges so far, then assume the live range
+            // starts at declaration.
+            range.startLine = variable.declLine;
+          } else {
+            summary = false;
+            outs() << "🐣 Store to `" << variable.name << "`, ";
+            outs() << "asm line ";
+            outs() << instrInfo.getInfo(*storeInstruction).assemblyLine;
+            outs() << ": missing line info\n";
+            continue;
+          }
+          KLEE_DEBUG(dbgs() << "Added live value range starting at "
+                            << range.startLine << "\n");
+          liveValueRanges.push_back(range);
+        }
+      }
+    } else if (const auto *valueIntrinsic =
+                   dyn_cast<DbgValueInst>(&instruction)) {
+      // TODO: Handle `dbg.value`
+      // TODO: Handle DIArgList case
+    } else {
+      llvm_unreachable("Unexpected dbg intrinsic");
+    }
+  }
+
+  return summary;
+}
 
 int main(int argc, char **argv) {
   InitLLVM x(argc, argv);
@@ -124,45 +243,60 @@ int main(int argc, char **argv) {
     outs() << "first after function: `" << afterDefinition.getName() << "`\n";
   }
 
-  // TODO: Actually check live value ranges instead of just comparing
-  // declaration lines.
-  using Variable = std::tuple<llvm::StringRef, unsigned int>;
-  SmallSet<Variable, 8> variables;
+  VariablesSet beforeVariables;
+  VariablesSet afterVariables;
 
-  for (const auto &instruction : instructions(beforeDefinition)) {
-    const auto *varIntrinsic = dyn_cast<DbgVariableIntrinsic>(&instruction);
-    if (!varIntrinsic)
-      continue;
-    assert(!isa<DbgAddrIntrinsic>(instruction) &&
-           "Unexpected dbg.addr intrinsic");
-    const DILocalVariable *variable = varIntrinsic->getVariable();
-    assert(variable && "Variable intrinsic without a variable");
-    KLEE_DEBUG(dbgs() << "Before variable `" << variable->getName() << "` ");
-    KLEE_DEBUG(dbgs() << "declared on line " << variable->getLine() << "\n");
-    variables.insert(std::make_tuple(variable->getName(), variable->getLine()));
-  }
+  VariableToLiveValueRanges beforeVariableToLiveValueRanges;
+  VariableToLiveValueRanges afterVariableToLiveValueRanges;
 
-  auto variablesFound = variables.size();
+  // Borrow KLEE's instruction info analysis for now...
+  InstructionInfoTable beforeInstrInfo(*beforeModule);
+  InstructionInfoTable afterInstrInfo(*afterModule);
 
-  for (const auto &instruction : instructions(afterDefinition)) {
-    const auto *varIntrinsic = dyn_cast<DbgVariableIntrinsic>(&instruction);
-    if (!varIntrinsic)
-      continue;
-    assert(!isa<DbgAddrIntrinsic>(instruction) &&
-           "Unexpected dbg.addr intrinsic");
-    const DILocalVariable *variable = varIntrinsic->getVariable();
-    assert(variable && "Variable intrinsic without a variable");
-    KLEE_DEBUG(dbgs() << "After variable `" << variable->getName() << "` ");
-    KLEE_DEBUG(dbgs() << "declared on line " << variable->getLine() << "\n");
-    variables.erase(std::make_tuple(variable->getName(), variable->getLine()));
+  summary &=
+      gatherLiveValueRanges("Before", beforeDefinition, beforeInstrInfo,
+                            beforeVariables, beforeVariableToLiveValueRanges);
+  summary &=
+      gatherLiveValueRanges("After", afterDefinition, afterInstrInfo,
+                            afterVariables, afterVariableToLiveValueRanges);
+
+  {
+    bool match = beforeVariables == afterVariables;
+    summary &= match;
+    outs() << (match ? "✅ " : "🐣 ");
+    outs() << beforeVariables.size() << " before variables found, ";
+    outs() << afterVariables.size() << " after variables found, ";
+    auto mismatched = set_difference(beforeVariables, afterVariables);
+    outs() << mismatched.size() << " mismatched\n";
   }
 
   {
-    bool match = !variables.size();
+    bool match =
+        beforeVariableToLiveValueRanges == afterVariableToLiveValueRanges;
     summary &= match;
+
+    SmallVector<LiveValueRange> beforeFlattenedRanges;
+    for (const auto &pair : beforeVariableToLiveValueRanges) {
+      beforeFlattenedRanges.insert(beforeFlattenedRanges.end(),
+                                   pair.second.begin(), pair.second.end());
+    }
+
+    SmallVector<LiveValueRange> afterFlattenedRanges;
+    for (const auto &pair : afterVariableToLiveValueRanges) {
+      afterFlattenedRanges.insert(afterFlattenedRanges.end(),
+                                  pair.second.begin(), pair.second.end());
+    }
+
+    SmallVector<LiveValueRange> mismatchedRanges;
+    std::set_difference(
+        beforeFlattenedRanges.begin(), beforeFlattenedRanges.end(),
+        afterFlattenedRanges.begin(), afterFlattenedRanges.end(),
+        std::inserter(mismatchedRanges, mismatchedRanges.begin()));
+
     outs() << (match ? "✅ " : "🐣 ");
-    outs() << variablesFound << " variables found, ";
-    outs() << variables.size() << " mismatched\n";
+    outs() << beforeFlattenedRanges.size() << " before LVRs found, ";
+    outs() << afterFlattenedRanges.size() << " after LVRs found, ";
+    outs() << mismatchedRanges.size() << " mismatched\n";
   }
 
   outs() << "\n";
