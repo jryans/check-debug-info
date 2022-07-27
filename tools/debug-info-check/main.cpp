@@ -1,4 +1,5 @@
 #include "klee/Module/InstructionInfoTable.h"
+#include "klee/Module/Printing.h"
 #include "klee/Support/Debug.h"
 #include "klee/Support/ErrorHandling.h"
 #include "klee/Support/ModuleUtil.h"
@@ -23,7 +24,6 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Regex.h"
 
 #include <algorithm>
 #include <cassert>
@@ -92,30 +92,6 @@ using LVRs = SmallVector<LiveValueRange>;
 // There might be a good match for this in LLVM's data structures, but wasn't
 // quite sure...
 using VariableToLVRs = std::map<Variable, LVRs>;
-
-std::string printInstruction(const Instruction &instruction) {
-  std::string str;
-  raw_string_ostream out(str);
-
-  // Print instruction as normal
-  out << instruction;
-  out.flush();
-
-  // Inline debug location if present
-  const auto debugLoc = instruction.getDebugLoc();
-  if (debugLoc) {
-    out << ", l" << debugLoc.getLine() << " c" << debugLoc.getCol();
-    out.flush();
-    Regex dbgAttachment(", !dbg ![0-9]+");
-    str = dbgAttachment.sub("", str);
-  }
-
-  // Remove alignment if present
-  Regex alignment(", align [0-9]+");
-  str = alignment.sub("", str);
-
-  return str;
-}
 
 bool addLiveValueRange(const InstructionInfoTable &instrInfo,
                        const Variable &variable, const StringRef producerKind,
