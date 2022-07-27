@@ -1427,10 +1427,9 @@ void Executor::printTraceBeforeExecution(ExecutionState &state,
   // TODO: Use consistent spacing for all lines
   (*stream) << ki->getSourceLocation() << ' ';
   (*stream) << "ll" << ki->info->assemblyLine << ' ';
-  (*stream) << 's' << state.getID() << ' ';
+  (*stream) << 's' << state.getID() << '\n';
   // Instruction includes 2 space prefix for some reason...
-  (*stream) << *(ki->inst);
-  (*stream) << '\n';
+  (*stream) << *(ki->inst) << '\n';
 
   // Print state constraints (includes trailing new line)
   (*stream) << "  const: " << state.constraints;
