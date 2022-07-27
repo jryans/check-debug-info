@@ -18,6 +18,7 @@
 #include "klee/Module/InstructionInfoTable.h"
 #include "klee/Module/KInstruction.h"
 #include "klee/Module/KModule.h"
+#include "klee/Module/Printing.h"
 #include "klee/Support/Debug.h"
 #include "klee/Support/ErrorHandling.h"
 #include "klee/Support/ModuleUtil.h"
@@ -285,7 +286,7 @@ void KModule::manifest(InterpreterHandler *ih, bool forceSourceOutput) {
   if (OutputSource || forceSourceOutput) {
     std::unique_ptr<llvm::raw_fd_ostream> os(ih->openOutputFile("assembly.ll"));
     assert(os && !os->has_error() && "unable to open source output");
-    *os << *module;
+    *os << printModule(*module);
   }
 
   if (OutputModule) {

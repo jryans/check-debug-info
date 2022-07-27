@@ -5,11 +5,14 @@
 
 namespace llvm {
 class Instruction;
-}
+class Module;
+} // namespace llvm
 
 namespace klee {
 
 std::string printInstruction(const llvm::Instruction &instruction);
+
+std::string printModule(const llvm::Module &module);
 
 } // namespace klee
 
