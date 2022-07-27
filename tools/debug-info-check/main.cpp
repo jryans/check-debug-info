@@ -23,6 +23,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Regex.h"
 
 #include <algorithm>
 #include <cassert>
@@ -92,6 +93,30 @@ using LVRs = SmallVector<LiveValueRange>;
 // quite sure...
 using VariableToLVRs = std::map<Variable, LVRs>;
 
+std::string printInstruction(const Instruction &instruction) {
+  std::string str;
+  raw_string_ostream out(str);
+
+  // Print instruction as normal
+  out << instruction;
+  out.flush();
+
+  // Inline debug location if present
+  const auto debugLoc = instruction.getDebugLoc();
+  if (debugLoc) {
+    out << ", l" << debugLoc.getLine() << " c" << debugLoc.getCol();
+    out.flush();
+    Regex dbgAttachment(", !dbg ![0-9]+");
+    str = dbgAttachment.sub("", str);
+  }
+
+  // Remove alignment if present
+  Regex alignment(", align [0-9]+");
+  str = alignment.sub("", str);
+
+  return str;
+}
+
 bool addLiveValueRange(const InstructionInfoTable &instrInfo,
                        const Variable &variable, const StringRef producerKind,
                        const Value *producerValue,
@@ -106,7 +131,7 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
     KLEE_DEBUG(dbgs() << "asm line "
                       << instrInfo.getInfo(*producerInstruction).assemblyLine
                       << "\n");
-    KLEE_DEBUG(dbgs() << *producerInstruction << "\n");
+    KLEE_DEBUG(dbgs() << printInstruction(*producerInstruction) << "\n");
   } else if (const auto *producerArgument = dyn_cast<Argument>(producerValue)) {
     KLEE_DEBUG(dbgs() << "arg " << producerArgument->getArgNo() << "\n");
   }
