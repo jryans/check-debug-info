@@ -75,6 +75,10 @@ std::string printModule(const Module &module) {
   std::regex emptyDiExpression(", !DIExpression\\(\\)");
   str = std::regex_replace(str, emptyDiExpression, "");
 
+  // Remove trailing function definition attributes
+  std::regex defineAttrs("(define.+?\\) ).*\\{");
+  str = std::regex_replace(str, defineAttrs, "$1{");
+
   // Inline local variable uses
   std::regex varMdUse(", !([0-9]+)");
   for (std::sregex_iterator i(str.begin(), str.end(), varMdUse), e; i != e;
