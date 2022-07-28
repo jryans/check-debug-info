@@ -121,8 +121,10 @@ std::string printModule(const Module &module) {
     if (const auto *location = cast<DILocation>(mdNode)) {
       std::string locInline;
       raw_string_ostream locInlineOut(locInline);
-      locInlineOut << ", l" << location->getLine();
-      locInlineOut << " c" << location->getColumn();
+      auto line = location->getLine();
+      locInlineOut << ", l" << line;
+      if (line)
+        locInlineOut << " c" << location->getColumn();
       locInlineOut.flush();
       str.replace(match.position(), match.length(), locInline);
     }
