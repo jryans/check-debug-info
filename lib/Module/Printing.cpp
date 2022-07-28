@@ -98,6 +98,7 @@ std::string printModule(const Module &module) {
       std::string varInline;
       raw_string_ostream varInlineOut(varInline);
       varInlineOut << ", \"" << variable->getName() << "\"";
+      varInlineOut << " l" << variable->getLine();
       varInlineOut.flush();
       str.replace(match.position(), match.length(), varInline);
     }
