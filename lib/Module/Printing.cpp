@@ -99,6 +99,31 @@ std::string printModule(const Module &module) {
     }
   }
 
+  // Inline location attachments
+  std::regex locMdAtt(", !dbg !([0-9]+)");
+  for (std::sregex_iterator i(str.begin(), str.end(), locMdAtt), e; i != e;
+       ++i) {
+    const auto &match = *i;
+    std::string slotStr = match[1].str();
+    const char *slotChars = slotStr.c_str();
+    char *slotCharsEnd;
+    unsigned slot = std::strtoul(slotChars, &slotCharsEnd, 10);
+    const auto &mdNodeIter = slots.MetadataNodes.find(slot);
+    if (mdNodeIter == slots.MetadataNodes.end())
+      continue;
+    const auto &mdNode = mdNodeIter->second;
+    if (mdNode->getMetadataID() != Metadata::DILocationKind)
+      continue;
+    if (const auto *location = cast<DILocation>(mdNode)) {
+      std::string locInline;
+      raw_string_ostream locInlineOut(locInline);
+      locInlineOut << ", l" << location->getLine();
+      locInlineOut << " c" << location->getColumn();
+      locInlineOut.flush();
+      str.replace(match.position(), match.length(), locInline);
+    }
+  }
+
   return str;
 }
 
