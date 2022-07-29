@@ -10,6 +10,8 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Argument.h"
+#include "llvm/IR/Constant.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Function.h"
@@ -99,7 +101,8 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
                        VariableToLVRs &variableToLVRs) {
   if (!producerValue)
     return true;
-  if (!isa<Instruction>(*producerValue) && !isa<Argument>(*producerValue))
+  if (!isa<Instruction>(*producerValue) && !isa<Argument>(*producerValue) &&
+      !isa<ConstantInt>(*producerValue))
     return true;
 
   KLEE_DEBUG(dbgs() << producerKind << " `" << variable.name << "`, ");
@@ -110,6 +113,8 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
     KLEE_DEBUG(dbgs() << printInstruction(*producerInstruction) << "\n");
   } else if (const auto *producerArgument = dyn_cast<Argument>(producerValue)) {
     KLEE_DEBUG(dbgs() << "arg " << producerArgument->getArgNo() << "\n");
+  } else if (const auto *producerInt = dyn_cast<ConstantInt>(producerValue)) {
+    KLEE_DEBUG(dbgs() << "value " << producerInt->getValue() << "\n");
   }
 
   auto &liveValueRanges = variableToLVRs[variable];
