@@ -118,7 +118,16 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
   }
 
   auto &liveValueRanges = variableToLVRs[variable];
-  // TODO: Terminate previous range
+
+  // Check if this redundantly specifies the previous range
+  if (liveValueRanges.size()) {
+    const auto &lastRange = liveValueRanges.back();
+    if (lastRange.producerValue == producerValue) {
+      KLEE_DEBUG(dbgs() << "  Value is same as last range, skipping\n");
+      return true;
+    }
+  }
+
   LiveValueRange range = {};
   range.producerValue = producerValue;
   if (const auto *producerInstruction = dyn_cast<Instruction>(producerValue)) {
@@ -142,6 +151,7 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
     outs() << ": missing line info\n";
     return false;
   }
+  // TODO: Terminate previous range
   KLEE_DEBUG(dbgs() << "  Added live value range starting at "
                     << range.startLine << "\n");
   liveValueRanges.push_back(range);
