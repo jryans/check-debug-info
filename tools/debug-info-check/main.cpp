@@ -189,9 +189,14 @@ bool gatherLiveValueRanges(const StringRef moduleKind, const Function &function,
     KLEE_DEBUG(dbgs() << "declared on line " << variable.declLine << "\n");
     variables.insert(variable);
 
-    // TODO: Warn on undef...?
-    if (varIntrinsic->isUndef())
+    if (varIntrinsic->isUndef()) {
+      outs() << "🐣 " << moduleKind << " variable intrinsic with undef input, ";
+      outs() << "asm line " << instrInfo.getInfo(*varIntrinsic).assemblyLine
+             << "\n";
+      outs() << printInstruction(*varIntrinsic) << "\n";
+      summary = false;
       continue;
+    }
 
     if (const auto *declareIntrinsic = dyn_cast<DbgDeclareInst>(&instruction)) {
       // Look for stores to the `dbr.declare`'s address
