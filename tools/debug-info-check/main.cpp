@@ -36,6 +36,7 @@
 #include <memory>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 using namespace klee;
@@ -87,6 +88,16 @@ struct LiveValueRange {
            std::tie(other.startLine, other.endLine);
   }
 };
+
+raw_ostream &operator<<(raw_ostream &out, const LiveValueRange &range) {
+  out << "[" << range.startLine << ", ";
+  if (range.endLine == UINT32_MAX)
+    out << "∞";
+  else
+    out << range.endLine;
+  out << ")";
+  return out;
+}
 
 using VariablesSet = SmallSet<Variable, 8>;
 
@@ -318,31 +329,57 @@ int main(int argc, char **argv) {
   }
 
   {
-    bool match = beforeVariableToLVRs == afterVariableToLVRs;
-    summary &= match;
-
-    LVRs beforeFlattenedRanges;
+    SmallVector<std::pair<Variable, LiveValueRange>> beforeFlattenedRanges;
     for (const auto &pair : beforeVariableToLVRs) {
-      beforeFlattenedRanges.insert(beforeFlattenedRanges.end(),
-                                   pair.second.begin(), pair.second.end());
+      const auto &variable = pair.first;
+      for (const auto &range : pair.second) {
+        beforeFlattenedRanges.push_back(std::make_pair(variable, range));
+      }
     }
+    sort(beforeFlattenedRanges);
 
-    LVRs afterFlattenedRanges;
+    SmallVector<std::pair<Variable, LiveValueRange>> afterFlattenedRanges;
     for (const auto &pair : afterVariableToLVRs) {
-      afterFlattenedRanges.insert(afterFlattenedRanges.end(),
-                                  pair.second.begin(), pair.second.end());
+      const auto &variable = pair.first;
+      for (const auto &range : pair.second) {
+        afterFlattenedRanges.push_back(std::make_pair(variable, range));
+      }
     }
+    sort(afterFlattenedRanges);
 
-    LVRs mismatchedRanges;
+    // TODO: Use pointers instead of copying...
+    SmallVector<std::pair<Variable, LiveValueRange>> mismatchedBeforeRanges;
+    SmallVector<std::pair<Variable, LiveValueRange>> mismatchedAfterRanges;
+    // TODO: Be less lazy here, write a loop like a normal person...
     std::set_difference(
         beforeFlattenedRanges.begin(), beforeFlattenedRanges.end(),
         afterFlattenedRanges.begin(), afterFlattenedRanges.end(),
-        std::inserter(mismatchedRanges, mismatchedRanges.begin()));
+        std::inserter(mismatchedBeforeRanges, mismatchedBeforeRanges.begin()));
+    std::set_difference(
+        afterFlattenedRanges.begin(), afterFlattenedRanges.end(),
+        beforeFlattenedRanges.begin(), beforeFlattenedRanges.end(),
+        std::inserter(mismatchedAfterRanges, mismatchedAfterRanges.begin()));
+
+    bool match =
+        mismatchedBeforeRanges.empty() && mismatchedAfterRanges.empty();
+    summary &= match;
 
     outs() << (match ? "✅ " : "🐣 ");
     outs() << beforeFlattenedRanges.size() << " before LVRs found, ";
     outs() << afterFlattenedRanges.size() << " after LVRs found, ";
-    outs() << mismatchedRanges.size() << " mismatched\n";
+    outs() << mismatchedBeforeRanges.size() + mismatchedAfterRanges.size()
+           << " mismatched\n";
+
+    for (const auto &varRange : mismatchedBeforeRanges) {
+      outs() << "Mismatched before `" << varRange.first.name << "` ";
+      outs() << "range " << varRange.second << " ";
+      outs() << "from " << printValue(*varRange.second.producerValue) << "\n";
+    }
+    for (const auto &varRange : mismatchedAfterRanges) {
+      outs() << "Mismatched after `" << varRange.first.name << "` ";
+      outs() << "range " << varRange.second << " ";
+      outs() << "from " << printValue(*varRange.second.producerValue) << "\n";
+    }
   }
 
   outs() << "\n";

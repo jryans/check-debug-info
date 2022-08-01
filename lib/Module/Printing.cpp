@@ -43,6 +43,19 @@ std::string printInstruction(const Instruction &instruction) {
   return str;
 }
 
+std::string printValue(const Value &value) {
+  if (const auto *instruction = dyn_cast<Instruction>(&value)) {
+    return printInstruction(*instruction);
+  }
+
+  std::string str;
+  raw_string_ostream out(str);
+
+  // Print value as normal
+  out << value;
+  return out.str();
+}
+
 std::string printModule(const Module &module) {
   std::string str;
   raw_string_ostream out(str);
