@@ -10,6 +10,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Argument.h"
+#include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
@@ -76,7 +77,9 @@ struct LiveValueRange {
   unsigned int endLine = UINT32_MAX;
 
   // Not checked during comparison
+
   const Value *producerValue;
+  const DbgVariableIntrinsic *varIntrinsic;
 
   bool operator==(const LiveValueRange &other) const {
     return std::tie(startLine, endLine) ==
@@ -107,6 +110,7 @@ using LVRs = SmallVector<LiveValueRange>;
 using VariableToLVRs = std::map<Variable, LVRs>;
 
 bool addLiveValueRange(const InstructionInfoTable &instrInfo,
+                       const DbgVariableIntrinsic *varIntrinsic,
                        const Variable &variable, const StringRef producerKind,
                        const Value *producerValue,
                        VariableToLVRs &variableToLVRs) {
@@ -139,8 +143,38 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
     }
   }
 
+  // For phi nodes, check if they redundantly match the previous ranges for all
+  // incoming edges.
+  if (const auto *phiNode = dyn_cast<PHINode>(producerValue)) {
+    bool match = true;
+    for (const auto &phiEdge : phiNode->incoming_values()) {
+      const Value &value = *phiEdge;
+      const BasicBlock *block = phiNode->getIncomingBlock(phiEdge);
+      assert(block && "Phi edge without a basic block");
+      const auto rangesInBlock =
+          make_filter_range(liveValueRanges, [&](const LiveValueRange &range) {
+            return range.varIntrinsic->getParent() == block;
+          });
+      // Check whether there's at least one previous range
+      if (rangesInBlock.end() == rangesInBlock.begin()) {
+        match = false;
+        break;
+      }
+      const auto &lastRange = std::prev(rangesInBlock.end());
+      if (lastRange->producerValue != &value) {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      KLEE_DEBUG(dbgs() << "  All phi values same as last ranges, skipping\n");
+      return true;
+    }
+  }
+
   LiveValueRange range = {};
   range.producerValue = producerValue;
+  range.varIntrinsic = varIntrinsic;
   if (const auto *producerInstruction = dyn_cast<Instruction>(producerValue)) {
     const auto debugLoc = producerInstruction->getDebugLoc();
     if (debugLoc)
@@ -169,58 +203,89 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
   return true;
 }
 
+bool gatherLiveValueRanges(const StringRef moduleKind,
+                           const Instruction &instruction,
+                           const InstructionInfoTable &instrInfo,
+                           VariablesSet &variables,
+                           VariableToLVRs &variableToLVRs) {
+  bool summary = true;
+
+  const auto *varIntrinsic = dyn_cast<DbgVariableIntrinsic>(&instruction);
+  if (!varIntrinsic)
+    return summary;
+  assert(!isa<DbgAddrIntrinsic>(instruction) &&
+         "Unexpected dbg.addr intrinsic");
+
+  const DILocalVariable *diVariable = varIntrinsic->getVariable();
+  assert(diVariable && "Variable intrinsic without a variable");
+  Variable variable = {diVariable->getName(), diVariable->getLine()};
+  KLEE_DEBUG(dbgs() << moduleKind << " variable `" << variable.name << "` ");
+  KLEE_DEBUG(dbgs() << "declared on line " << variable.declLine << "\n");
+  variables.insert(variable);
+
+  if (varIntrinsic->isUndef()) {
+    outs() << "🐣 " << moduleKind << " variable intrinsic with undef input, ";
+    outs() << "asm line " << instrInfo.getInfo(*varIntrinsic).assemblyLine
+           << "\n";
+    outs() << printInstruction(*varIntrinsic) << "\n";
+    summary = false;
+    return summary;
+  }
+
+  if (const auto *declareIntrinsic = dyn_cast<DbgDeclareInst>(&instruction)) {
+    // Look for stores to the `dbr.declare`'s address
+    // TODO: Review `LowerDbgDeclare` for more cases to handle
+    const Value *address = declareIntrinsic->getAddress();
+    if (!address)
+      return summary;
+    for (const auto *addressUse : address->users()) {
+      if (const auto *storeInstruction = dyn_cast<StoreInst>(addressUse)) {
+        summary &=
+            addLiveValueRange(instrInfo, declareIntrinsic, variable, "Store to",
+                              storeInstruction, variableToLVRs);
+      }
+    }
+  } else if (const auto *valueIntrinsic =
+                 dyn_cast<DbgValueInst>(&instruction)) {
+    // Find related instructions via the `dbg.value`'s location ops
+    // TODO: Handle DIArgList case
+    assert(!valueIntrinsic->hasArgList() && "Unexpected DIArgList");
+    const auto *producerValue = valueIntrinsic->getValue();
+    summary &=
+        addLiveValueRange(instrInfo, valueIntrinsic, variable,
+                          "Value produced for", producerValue, variableToLVRs);
+  } else {
+    llvm_unreachable("Unexpected dbg intrinsic");
+  }
+
+  return summary;
+}
+
 bool gatherLiveValueRanges(const StringRef moduleKind, const Function &function,
                            const InstructionInfoTable &instrInfo,
                            VariablesSet &variables,
                            VariableToLVRs &variableToLVRs) {
   bool summary = true;
 
+  // Some intrinsics (e.g. using a phi node) need to be processed at the end
+  SmallVector<const DbgVariableIntrinsic *> postProcessIntrinsics;
+
   for (const auto &instruction : instructions(function)) {
-    const auto *varIntrinsic = dyn_cast<DbgVariableIntrinsic>(&instruction);
-    if (!varIntrinsic)
-      continue;
-    assert(!isa<DbgAddrIntrinsic>(instruction) &&
-           "Unexpected dbg.addr intrinsic");
-
-    const DILocalVariable *diVariable = varIntrinsic->getVariable();
-    assert(diVariable && "Variable intrinsic without a variable");
-    Variable variable = {diVariable->getName(), diVariable->getLine()};
-    KLEE_DEBUG(dbgs() << moduleKind << " variable `" << variable.name << "` ");
-    KLEE_DEBUG(dbgs() << "declared on line " << variable.declLine << "\n");
-    variables.insert(variable);
-
-    if (varIntrinsic->isUndef()) {
-      outs() << "🐣 " << moduleKind << " variable intrinsic with undef input, ";
-      outs() << "asm line " << instrInfo.getInfo(*varIntrinsic).assemblyLine
-             << "\n";
-      outs() << printInstruction(*varIntrinsic) << "\n";
-      summary = false;
-      continue;
-    }
-
-    if (const auto *declareIntrinsic = dyn_cast<DbgDeclareInst>(&instruction)) {
-      // Look for stores to the `dbr.declare`'s address
-      // TODO: Review `LowerDbgDeclare` for more cases to handle
-      const Value *address = declareIntrinsic->getAddress();
-      if (!address)
+    if (const auto *valueIntrinsic = dyn_cast<DbgValueInst>(&instruction)) {
+      if (const auto *phiNode = dyn_cast<PHINode>(valueIntrinsic->getValue())) {
+        // Processing phi nodes requires examining other ranges throughout the
+        // program, so stash these for now and revisit them again at the end.
+        postProcessIntrinsics.push_back(valueIntrinsic);
         continue;
-      for (const auto *addressUse : address->users()) {
-        if (const auto *storeInstruction = dyn_cast<StoreInst>(addressUse)) {
-          summary &= addLiveValueRange(instrInfo, variable, "Store to",
-                                       storeInstruction, variableToLVRs);
-        }
       }
-    } else if (const auto *valueIntrinsic =
-                   dyn_cast<DbgValueInst>(&instruction)) {
-      // Find related instructions via the `dbg.value`'s location ops
-      // TODO: Handle DIArgList case
-      assert(!valueIntrinsic->hasArgList() && "Unexpected DIArgList");
-      const auto *producerValue = valueIntrinsic->getValue();
-      summary &= addLiveValueRange(instrInfo, variable, "Value produced for",
-                                   producerValue, variableToLVRs);
-    } else {
-      llvm_unreachable("Unexpected dbg intrinsic");
     }
+    summary &= gatherLiveValueRanges(moduleKind, instruction, instrInfo,
+                                     variables, variableToLVRs);
+  }
+
+  for (const auto &instruction : postProcessIntrinsics) {
+    summary &= gatherLiveValueRanges(moduleKind, *instruction, instrInfo,
+                                     variables, variableToLVRs);
   }
 
   return summary;
