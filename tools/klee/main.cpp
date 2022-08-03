@@ -22,6 +22,7 @@
 #include "klee/Support/FileHandling.h"
 #include "klee/Support/ModuleUtil.h"
 #include "klee/Support/PrintVersion.h"
+#include "klee/Support/RuntimeHandling.h"
 #include "klee/System/Time.h"
 
 #include "llvm/Bitcode/BitcodeReader.h"
@@ -336,8 +337,6 @@ public:
 
   static void getKTestFilesInDir(std::string directoryPath,
                                  std::vector<std::string> &results);
-
-  static std::string getRunTimeLibraryPath(const char *argv0);
 };
 
 KleeHandler::KleeHandler(int argc, char **argv)
@@ -628,47 +627,6 @@ void KleeHandler::getKTestFilesInDir(std::string directoryPath,
                  << ": " << ec.message() << "\n";
     exit(1);
   }
-}
-
-std::string KleeHandler::getRunTimeLibraryPath(const char *argv0) {
-  // allow specifying the path to the runtime library
-  const char *env = getenv("KLEE_RUNTIME_LIBRARY_PATH");
-  if (env)
-    return std::string(env);
-
-  // Take any function from the execution binary but not main (as not allowed by
-  // C++ standard)
-  void *MainExecAddr = (void *)(intptr_t)getRunTimeLibraryPath;
-  SmallString<128> toolRoot(
-      llvm::sys::fs::getMainExecutable(argv0, MainExecAddr)
-      );
-
-  // Strip off executable so we have a directory path
-  llvm::sys::path::remove_filename(toolRoot);
-
-  SmallString<128> libDir;
-
-  if (strlen( KLEE_INSTALL_BIN_DIR ) != 0 &&
-      strlen( KLEE_INSTALL_RUNTIME_DIR ) != 0 &&
-      toolRoot.str().endswith( KLEE_INSTALL_BIN_DIR ))
-  {
-    KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                         "Using installed KLEE library runtime: ");
-    libDir = toolRoot.str().substr(0,
-               toolRoot.str().size() - strlen( KLEE_INSTALL_BIN_DIR ));
-    llvm::sys::path::append(libDir, KLEE_INSTALL_RUNTIME_DIR);
-  }
-  else
-  {
-    KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                         "Using build directory KLEE library runtime :");
-    libDir = KLEE_DIR;
-    llvm::sys::path::append(libDir, "runtime/lib");
-  }
-
-  KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                       libDir.c_str() << "\n");
-  return libDir.c_str();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1246,7 +1204,7 @@ int main(int argc, char **argv, char **envp) {
   // Push the module as the first entry
   loadedModules.emplace_back(std::move(M));
 
-  std::string LibraryDir = KleeHandler::getRunTimeLibraryPath(argv[0]);
+  std::string LibraryDir = getRuntimeLibraryPath(argv[0]);
   Interpreter::ModuleOptions Opts(LibraryDir.c_str(), EntryPoint, opt_suffix,
                                   /*Optimize=*/OptimizeModule,
                                   /*CheckDivZero=*/CheckDivZero,
