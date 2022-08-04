@@ -1,4 +1,5 @@
 #include "ValuesCollector.h"
+#include "Variable.h"
 
 #include "klee/Module/InstructionInfoTable.h"
 #include "klee/Module/Printing.h"
@@ -10,7 +11,6 @@
 #include "klee/Support/RuntimeHandling.h"
 
 #include "llvm/ADT/SetOperations.h"
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Argument.h"
@@ -40,7 +40,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iterator>
-#include <map>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -65,56 +64,6 @@ cl::opt<std::string>
               cl::desc("<program (.bc/.ll) after optimisation>"));
 
 } // namespace
-
-struct Variable {
-  llvm::StringRef name;
-  unsigned int declLine;
-
-  bool operator==(const Variable &other) const {
-    return std::tie(name, declLine) == std::tie(other.name, other.declLine);
-  }
-
-  bool operator<(const Variable &other) const {
-    return std::tie(name, declLine) < std::tie(other.name, other.declLine);
-  }
-};
-
-struct LiveValueRange {
-  unsigned int startLine;
-  unsigned int endLine = UINT32_MAX;
-
-  // Not checked during comparison
-
-  const Value *producerValue;
-  const DbgVariableIntrinsic *varIntrinsic;
-
-  bool operator==(const LiveValueRange &other) const {
-    return std::tie(startLine, endLine) ==
-           std::tie(other.startLine, other.endLine);
-  }
-
-  bool operator<(const LiveValueRange &other) const {
-    return std::tie(startLine, endLine) <
-           std::tie(other.startLine, other.endLine);
-  }
-};
-
-raw_ostream &operator<<(raw_ostream &out, const LiveValueRange &range) {
-  out << "[" << range.startLine << ", ";
-  if (range.endLine == UINT32_MAX)
-    out << "∞";
-  else
-    out << range.endLine;
-  out << ")";
-  return out;
-}
-
-using VariablesSet = SmallSet<Variable, 8>;
-
-using LVRs = SmallVector<LiveValueRange>;
-// There might be a good match for this in LLVM's data structures, but wasn't
-// quite sure...
-using VariableToLVRs = std::map<Variable, LVRs>;
 
 bool addLiveValueRange(const InstructionInfoTable &instrInfo,
                        const DbgVariableIntrinsic *varIntrinsic,
