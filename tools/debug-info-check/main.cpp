@@ -471,8 +471,8 @@ int main(int argc, char **argv) {
     klee_error("Unable to create output directory `%s`: %s", outputDir.c_str(),
                e.message().c_str());
   }
-  collectValues(runtimeDir, std::move(beforeModule), beforeDefinition.getName(),
-                outputDir);
+  // TODO: Inject our own automatic symbolic wrapper
+  collectValues(runtimeDir, std::move(beforeModule), "main", outputDir);
 
   outs() << "\n";
   if (summary) {
