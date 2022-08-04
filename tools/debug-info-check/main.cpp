@@ -1,9 +1,13 @@
+#include "ValuesCollector.h"
+
 #include "klee/Module/InstructionInfoTable.h"
 #include "klee/Module/Printing.h"
+#include "klee/Solver/SolverCmdLine.h"
 #include "klee/Support/Debug.h"
 #include "klee/Support/ErrorHandling.h"
 #include "klee/Support/ModuleUtil.h"
 #include "klee/Support/PrintVersion.h"
+#include "klee/Support/RuntimeHandling.h"
 
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/SmallSet.h"
@@ -25,7 +29,10 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/Path.h"
+#include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
@@ -295,7 +302,7 @@ int main(int argc, char **argv) {
   InitLLVM x(argc, argv);
 
   cl::SetVersionPrinter(printVersion);
-  cl::HideUnrelatedOptions(debugInfoCheckCategory);
+  KCommandLine::HideOptions(cl::getGeneralCategory());
 
   cl::ParseCommandLineOptions(argc, argv, "Debug info consistency check\n");
 
@@ -304,13 +311,13 @@ int main(int argc, char **argv) {
 
   std::vector<std::unique_ptr<Module>> beforeModules;
   if (!loadFile(beforeFile, ctx, beforeModules, error)) {
-    klee_error("Unable to load program before optimisation from %s: %s",
+    klee_error("Unable to load program before optimisation from `%s`: %s",
                beforeFile.c_str(), error.c_str());
   }
 
   std::vector<std::unique_ptr<Module>> afterModules;
   if (!loadFile(afterFile, ctx, afterModules, error)) {
-    klee_error("Unable to load program after optimisation from %s: %s",
+    klee_error("Unable to load program after optimisation from `%s`: %s",
                afterFile.c_str(), error.c_str());
   }
 
@@ -329,11 +336,10 @@ int main(int argc, char **argv) {
 
   if (beforeModules.size() > 1 || afterModules.size() > 1) {
     klee_error("This tool does not support programs with multiple modules.");
-    return EXIT_FAILURE;
   }
 
-  const auto &beforeModule = beforeModules[0];
-  const auto &afterModule = afterModules[0];
+  auto &beforeModule = beforeModules[0];
+  auto &afterModule = afterModules[0];
 
   const auto &beforeFunctions = beforeModule->getFunctionList();
   const auto &afterFunctions = afterModule->getFunctionList();
@@ -353,7 +359,6 @@ int main(int argc, char **argv) {
 
   if (!beforeDefinitionCount || !afterDefinitionCount) {
     klee_error("Both programs must have at least 1 function");
-    return EXIT_FAILURE;
   }
 
   if (beforeDefinitionCount > 1 || afterDefinitionCount > 1) {
@@ -451,6 +456,23 @@ int main(int argc, char **argv) {
       outs() << "from " << printValue(*varRange.second.producerValue) << "\n";
     }
   }
+
+  // TODO: Move this closer to actual JIT usage...
+  InitializeNativeTarget();
+
+  std::string runtimeDir = getRuntimeLibraryPath(argv[0]);
+
+  // Collect symbolic values for before module
+  SmallString<128> outputDir(beforeFile);
+  sys::path::remove_filename(outputDir);
+  sys::path::append(outputDir, "debug-info-values");
+  sys::fs::remove_directories(outputDir);
+  if (auto e = sys::fs::create_directory(outputDir)) {
+    klee_error("Unable to create output directory `%s`: %s", outputDir.c_str(),
+               e.message().c_str());
+  }
+  collectValues(runtimeDir, std::move(beforeModule), beforeDefinition.getName(),
+                outputDir);
 
   outs() << "\n";
   if (summary) {
