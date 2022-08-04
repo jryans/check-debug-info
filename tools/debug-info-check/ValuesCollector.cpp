@@ -134,15 +134,15 @@ void collectValues(StringRef runtimeDir,
 
   // TODO: End time...?
 
-  uint64_t queries = *theStatisticManager->getStatisticByName("Queries");
-  uint64_t queriesValid =
-      *theStatisticManager->getStatisticByName("QueriesValid");
-  uint64_t queriesInvalid =
-      *theStatisticManager->getStatisticByName("QueriesInvalid");
-  uint64_t queryCounterexamples =
-      *theStatisticManager->getStatisticByName("QueriesCEX");
-  uint64_t queryConstructs =
-      *theStatisticManager->getStatisticByName("QueryConstructs");
+  // uint64_t queries = *theStatisticManager->getStatisticByName("Queries");
+  // uint64_t queriesValid =
+  //     *theStatisticManager->getStatisticByName("QueriesValid");
+  // uint64_t queriesInvalid =
+  //     *theStatisticManager->getStatisticByName("QueriesInvalid");
+  // uint64_t queryCounterexamples =
+  //     *theStatisticManager->getStatisticByName("QueriesCEX");
+  // uint64_t queryConstructs =
+  //     *theStatisticManager->getStatisticByName("QueryConstructs");
   // uint64_t instructions =
   //     *theStatisticManager->getStatisticByName("Instructions");
   uint64_t forks = *theStatisticManager->getStatisticByName("Forks");
@@ -152,16 +152,19 @@ void collectValues(StringRef runtimeDir,
 
   // Write some extra information in the info file which users won't
   // necessarily care about or understand.
-  if (queries)
-    handler.getInfoStream() << "KLEE: done: avg. constructs per query = "
-                            << queryConstructs / queries << "\n";
-  handler.getInfoStream() << "KLEE: done: total queries = " << queries << "\n"
-                          << "KLEE: done: valid queries = " << queriesValid
-                          << "\n"
-                          << "KLEE: done: invalid queries = " << queriesInvalid
-                          << "\n"
-                          << "KLEE: done: query cex = " << queryCounterexamples
-                          << "\n";
+  // if (queries)
+  //   handler.getInfoStream() << "KLEE: done: avg. constructs per query = "
+  //                           << queryConstructs / queries << "\n";
+  // handler.getInfoStream() << "KLEE: done: total queries = " << queries <<
+  // "\n"
+  //                         << "KLEE: done: valid queries = " << queriesValid
+  //                         << "\n"
+  //                         << "KLEE: done: invalid queries = " <<
+  //                         queriesInvalid
+  //                         << "\n"
+  //                         << "KLEE: done: query cex = " <<
+  //                         queryCounterexamples
+  //                         << "\n";
 
   // std::string statsStr;
   // raw_string_ostream stats(statsStr);
