@@ -4551,6 +4551,8 @@ void Executor::runFunctionAsMain(Function *f,
 
   if (statsTracker)
     statsTracker->done();
+
+  Context::reset();
 }
 
 unsigned Executor::getPathStreamID(const ExecutionState &state) {
