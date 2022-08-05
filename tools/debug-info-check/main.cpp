@@ -171,6 +171,8 @@ bool gatherLiveValueRanges(const StringRef moduleKind,
     return summary;
   assert(!isa<DbgAddrIntrinsic>(instruction) &&
          "Unexpected dbg.addr intrinsic");
+  assert(!varIntrinsic->getExpression()->getNumElements() &&
+         "Unexpected dbg intrinsic with non-empty expression");
 
   const DILocalVariable *diVariable = varIntrinsic->getVariable();
   assert(diVariable && "Variable intrinsic without a variable");
