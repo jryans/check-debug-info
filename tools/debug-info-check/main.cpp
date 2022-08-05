@@ -68,23 +68,22 @@ cl::opt<std::string>
 bool addLiveValueRange(const InstructionInfoTable &instrInfo,
                        const DbgVariableIntrinsic *varIntrinsic,
                        const Variable &variable, const StringRef producerKind,
-                       const Value *producerValue,
-                       VariableToLVRs &variableToLVRs) {
-  if (!producerValue)
+                       const Value *producer, VariableToLVRs &variableToLVRs) {
+  if (!producer)
     return true;
-  if (!isa<Instruction>(*producerValue) && !isa<Argument>(*producerValue) &&
-      !isa<ConstantInt>(*producerValue))
+  if (!isa<Instruction>(*producer) && !isa<Argument>(*producer) &&
+      !isa<ConstantInt>(*producer))
     return true;
 
   KLEE_DEBUG(dbgs() << producerKind << " `" << variable.name << "`, ");
-  if (const auto *producerInstruction = dyn_cast<Instruction>(producerValue)) {
+  if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
     KLEE_DEBUG(dbgs() << "asm line "
                       << instrInfo.getInfo(*producerInstruction).assemblyLine
                       << "\n");
     KLEE_DEBUG(dbgs() << printInstruction(*producerInstruction) << "\n");
-  } else if (const auto *producerArgument = dyn_cast<Argument>(producerValue)) {
+  } else if (const auto *producerArgument = dyn_cast<Argument>(producer)) {
     KLEE_DEBUG(dbgs() << "arg " << producerArgument->getArgNo() << "\n");
-  } else if (const auto *producerInt = dyn_cast<ConstantInt>(producerValue)) {
+  } else if (const auto *producerInt = dyn_cast<ConstantInt>(producer)) {
     KLEE_DEBUG(dbgs() << "value " << producerInt->getValue() << "\n");
   }
 
@@ -93,7 +92,7 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
   // Check if this redundantly specifies the previous range
   if (liveValueRanges.size()) {
     const auto &lastRange = liveValueRanges.back();
-    if (lastRange.producerValue == producerValue) {
+    if (lastRange.producer == producer) {
       KLEE_DEBUG(dbgs() << "  Value is same as last range, skipping\n");
       return true;
     }
@@ -101,7 +100,7 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
 
   // For phi nodes, check if they redundantly match the previous ranges for all
   // incoming edges.
-  if (const auto *phiNode = dyn_cast<PHINode>(producerValue)) {
+  if (const auto *phiNode = dyn_cast<PHINode>(producer)) {
     bool match = true;
     for (const auto &phiEdge : phiNode->incoming_values()) {
       const Value &value = *phiEdge;
@@ -117,7 +116,7 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
         break;
       }
       const auto &lastRange = std::prev(rangesInBlock.end());
-      if (lastRange->producerValue != &value) {
+      if (lastRange->producer != &value) {
         match = false;
         break;
       }
@@ -129,13 +128,13 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
   }
 
   LiveValueRange range = {};
-  range.producerValue = producerValue;
+  range.producer = producer;
   range.varIntrinsic = varIntrinsic;
-  if (const auto *producerInstruction = dyn_cast<Instruction>(producerValue)) {
+  if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
     const auto debugLoc = producerInstruction->getDebugLoc();
     if (debugLoc)
       range.startLine = debugLoc.getLine();
-  } else if (const auto *producerArgument = dyn_cast<Argument>(producerValue)) {
+  } else if (const auto *producerArgument = dyn_cast<Argument>(producer)) {
     const auto *function = producerArgument->getParent();
     assert(function && "Argument without a function");
     const auto *subprogram = function->getSubprogram();
@@ -208,10 +207,10 @@ bool gatherLiveValueRanges(const StringRef moduleKind,
     // Find related instructions via the `dbg.value`'s location ops
     // TODO: Handle DIArgList case
     assert(!valueIntrinsic->hasArgList() && "Unexpected DIArgList");
-    const auto *producerValue = valueIntrinsic->getValue();
+    const auto *producer = valueIntrinsic->getValue();
     summary &=
         addLiveValueRange(instrInfo, valueIntrinsic, variable,
-                          "Value produced for", producerValue, variableToLVRs);
+                          "Value produced for", producer, variableToLVRs);
   } else {
     llvm_unreachable("Unexpected dbg intrinsic");
   }
@@ -399,12 +398,12 @@ int main(int argc, char **argv) {
     for (const auto &varRange : mismatchedBeforeRanges) {
       outs() << "Mismatched before `" << varRange.first.name << "` ";
       outs() << "range " << varRange.second << " ";
-      outs() << "from " << printValue(*varRange.second.producerValue) << "\n";
+      outs() << "from " << printValue(*varRange.second.producer) << "\n";
     }
     for (const auto &varRange : mismatchedAfterRanges) {
       outs() << "Mismatched after `" << varRange.first.name << "` ";
       outs() << "range " << varRange.second << " ";
-      outs() << "from " << printValue(*varRange.second.producerValue) << "\n";
+      outs() << "from " << printValue(*varRange.second.producer) << "\n";
     }
   }
 

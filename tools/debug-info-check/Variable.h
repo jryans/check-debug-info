@@ -40,7 +40,7 @@ struct LiveValueRange {
 
   // Not checked during comparison
 
-  const llvm::Value *producerValue;
+  const llvm::Value *producer;
   const llvm::DbgVariableIntrinsic *varIntrinsic;
   // This cannot be `const` if we want `std::swap` to work...
   // TODO: Work out if this is a bug in `ref`

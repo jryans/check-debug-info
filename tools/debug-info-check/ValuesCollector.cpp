@@ -89,10 +89,10 @@ void VCHandler::visitBeforeExecution(ExecutionState &state, KInstruction *ki) {
   if (!isa<StoreInst>(*instruction))
     return;
 
-  // Look for ranges where this was the producer value
+  // Look for ranges where this was the producer
   const auto matchingRanges =
       make_filter_range(varsAndLVRs, [&](VariableAndLVR &pair) {
-        return pair.second.producerValue == instruction;
+        return pair.second.producer == instruction;
       });
 
   // TODO: Tweak this for other instructions...
