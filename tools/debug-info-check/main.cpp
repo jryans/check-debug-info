@@ -248,6 +248,18 @@ bool gatherLiveValueRanges(const StringRef moduleKind, const Function &function,
   return summary;
 }
 
+SmallString<128> createOutputDir(StringRef moduleFile) {
+  SmallString<128> outputDir(moduleFile);
+  sys::path::remove_filename(outputDir);
+  sys::path::append(outputDir, "debug-info-values");
+  sys::fs::remove_directories(outputDir);
+  if (auto e = sys::fs::create_directory(outputDir)) {
+    klee_error("Unable to create output directory `%s`: %s", outputDir.c_str(),
+               e.message().c_str());
+  }
+  return outputDir;
+}
+
 int main(int argc, char **argv) {
   InitLLVM x(argc, argv);
 
@@ -413,17 +425,20 @@ int main(int argc, char **argv) {
   std::string runtimeDir = getRuntimeLibraryPath(argv[0]);
 
   // Collect symbolic values for before module
-  SmallString<128> outputDir(beforeFile);
-  sys::path::remove_filename(outputDir);
-  sys::path::append(outputDir, "debug-info-values");
-  sys::fs::remove_directories(outputDir);
-  if (auto e = sys::fs::create_directory(outputDir)) {
-    klee_error("Unable to create output directory `%s`: %s", outputDir.c_str(),
-               e.message().c_str());
+  {
+    SmallString<128> outputDir = createOutputDir(beforeFile);
+    // TODO: Inject our own automatic symbolic wrapper
+    collectValues(runtimeDir, std::move(beforeModule), "main", outputDir,
+                  beforeFlattenedRanges);
   }
-  // TODO: Inject our own automatic symbolic wrapper
-  collectValues(runtimeDir, std::move(beforeModule), "main", outputDir,
-                beforeFlattenedRanges);
+
+  // Collect symbolic values for after module
+  {
+    SmallString<128> outputDir = createOutputDir(afterFile);
+    // TODO: Inject our own automatic symbolic wrapper
+    collectValues(runtimeDir, std::move(afterModule), "main", outputDir,
+                  afterFlattenedRanges);
+  }
 
   outs() << "\n";
   if (summary) {

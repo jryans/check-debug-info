@@ -29,6 +29,7 @@ namespace klee {
 struct Cell;
 class ExecutionState;
 class Interpreter;
+struct KFunction;
 struct KInstruction;
 class TreeStreamWriter;
 
@@ -169,8 +170,13 @@ public:
   virtual void getCoveredLines(const ExecutionState &state,
                                std::map<const std::string*, std::set<unsigned> > &res) = 0;
 
-  virtual const Cell &getOperandCell(KInstruction *ki, unsigned index,
-                                     ExecutionState &state) const = 0;
+  virtual const Cell &getOperandCell(ExecutionState &state, KInstruction *ki,
+                                     unsigned index) const = 0;
+
+  virtual Cell &getArgumentCell(ExecutionState &state, KFunction *kf,
+                                unsigned index) = 0;
+
+  virtual Cell &getDestCell(ExecutionState &state, KInstruction *target) = 0;
 };
 
 } // End klee namespace

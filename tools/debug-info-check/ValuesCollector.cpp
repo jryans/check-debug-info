@@ -58,6 +58,7 @@ public:
 
   void visitBeforeExecution(ExecutionState &state, KInstruction *ki) override;
   void visitAfterExecution(ExecutionState &state, KInstruction *ki) override;
+  void recordValue(const Value *producer, ref<Expr> symbolicValue);
 
   void processTestCase(const ExecutionState &state, const char *err,
                        const char *suffix) override {}
@@ -86,29 +87,45 @@ VCHandler::openOutputFile(const std::string &filename) {
 
 void VCHandler::visitBeforeExecution(ExecutionState &state, KInstruction *ki) {
   const auto *instruction = ki->inst;
+
+  // Stores are visited before execution
   if (!isa<StoreInst>(*instruction))
     return;
+  const Value *producer = instruction;
+  ref<Expr> symbolicValue = interpreter->getOperandCell(state, ki, 0).value;
 
+  recordValue(producer, symbolicValue);
+}
+
+void VCHandler::visitAfterExecution(ExecutionState &state, KInstruction *ki) {
+  const auto *instruction = ki->inst;
+
+  // Non-stores are visited after execution
+  if (isa<StoreInst>(*instruction))
+    return;
+  const Value *producer = instruction;
+  ref<Expr> symbolicValue = interpreter->getDestCell(state, ki).value;
+
+  recordValue(producer, symbolicValue);
+}
+
+void VCHandler::recordValue(const Value *producer, ref<Expr> symbolicValue) {
   // Look for ranges where this was the producer
+  // TODO: Gather all producers up front first for faster filtering...?
   const auto matchingRanges =
       make_filter_range(varsAndLVRs, [&](VariableAndLVR &pair) {
-        return pair.second.producer == instruction;
+        return pair.second.producer == producer;
       });
-
-  // TODO: Tweak this for other instructions...
-  const auto symbolicValue = interpreter->getOperandCell(ki, 0, state).value;
 
   for (VariableAndLVR &pair : matchingRanges) {
     const auto &var = pair.first;
     auto &range = pair.second;
     range.producedSymbolicValue = symbolicValue;
     KLEE_DEBUG(dbgs() << "Collected value for `" << var.name << "`\n");
-    KLEE_DEBUG(dbgs() << printInstruction(*instruction) << "\n");
+    KLEE_DEBUG(dbgs() << printValue(*producer) << "\n");
     KLEE_DEBUG(dbgs() << symbolicValue << "\n");
   }
 }
-
-void VCHandler::visitAfterExecution(ExecutionState &state, KInstruction *ki) {}
 
 void collectValues(StringRef runtimeDir,
                    std::unique_ptr<llvm::Module> mainModule,

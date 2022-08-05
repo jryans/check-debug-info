@@ -357,17 +357,6 @@ private:
   const Cell& eval(KInstruction *ki, unsigned index, 
                    ExecutionState &state) const;
 
-  Cell& getArgumentCell(ExecutionState &state,
-                        KFunction *kf,
-                        unsigned index) {
-    return state.stack.back().locals[kf->getArgRegister(index)];
-  }
-
-  Cell& getDestCell(ExecutionState &state,
-                    KInstruction *target) {
-    return state.stack.back().locals[target->dest];
-  }
-
   void bindLocal(KInstruction *target, 
                  ExecutionState &state, 
                  ref<Expr> value);
@@ -559,9 +548,18 @@ public:
   MergingSearcher *getMergingSearcher() const { return mergingSearcher; };
   void setMergingSearcher(MergingSearcher *ms) { mergingSearcher = ms; };
 
-  const Cell &getOperandCell(KInstruction *ki, unsigned index,
-                             ExecutionState &state) const override {
+  const Cell &getOperandCell(ExecutionState &state, KInstruction *ki,
+                             unsigned index) const override {
     return eval(ki, index, state);
+  }
+
+  Cell &getArgumentCell(ExecutionState &state, KFunction *kf,
+                        unsigned index) override {
+    return state.stack.back().locals[kf->getArgRegister(index)];
+  }
+
+  Cell &getDestCell(ExecutionState &state, KInstruction *target) override {
+    return state.stack.back().locals[target->dest];
   }
 };
   
