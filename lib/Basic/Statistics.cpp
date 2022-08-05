@@ -26,6 +26,11 @@ StatisticManager::~StatisticManager() {
   delete[] indexedStats;
 }
 
+void StatisticManager::reset() {
+  memset(globalStats, 0, sizeof(*globalStats) * stats.size());
+  contextStats = nullptr;
+}
+
 void StatisticManager::useIndexedStats(unsigned totalIndices) {  
   delete[] indexedStats;
   indexedStats = new uint64_t[totalIndices * stats.size()];

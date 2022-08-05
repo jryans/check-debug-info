@@ -50,6 +50,8 @@ namespace klee {
     StatisticManager();
     ~StatisticManager();
 
+    void reset();
+
     void useIndexedStats(unsigned totalIndices);
 
     StatisticRecord *getContext();

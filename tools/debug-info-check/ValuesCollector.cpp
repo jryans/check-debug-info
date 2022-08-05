@@ -189,4 +189,8 @@ void collectValues(StringRef runtimeDir,
 
   handler.getInfoStream() << "KLEE: done: explored paths = " << 1 + forks
                           << "\n";
+
+  // Stats manager holds onto data after execution
+  // Reset it to get ready for the next run
+  theStatisticManager->reset();
 }
