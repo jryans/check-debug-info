@@ -133,61 +133,10 @@ void collectValues(StringRef runtimeDir,
   interpreter->runFunctionAsMain(mainFn, /*argc=*/0, argv, envp);
 
   // TODO: End time...?
+  // TODO: More stats...?
 
-  // uint64_t queries = *theStatisticManager->getStatisticByName("Queries");
-  // uint64_t queriesValid =
-  //     *theStatisticManager->getStatisticByName("QueriesValid");
-  // uint64_t queriesInvalid =
-  //     *theStatisticManager->getStatisticByName("QueriesInvalid");
-  // uint64_t queryCounterexamples =
-  //     *theStatisticManager->getStatisticByName("QueriesCEX");
-  // uint64_t queryConstructs =
-  //     *theStatisticManager->getStatisticByName("QueryConstructs");
-  // uint64_t instructions =
-  //     *theStatisticManager->getStatisticByName("Instructions");
   uint64_t forks = *theStatisticManager->getStatisticByName("Forks");
 
   handler.getInfoStream() << "KLEE: done: explored paths = " << 1 + forks
                           << "\n";
-
-  // Write some extra information in the info file which users won't
-  // necessarily care about or understand.
-  // if (queries)
-  //   handler.getInfoStream() << "KLEE: done: avg. constructs per query = "
-  //                           << queryConstructs / queries << "\n";
-  // handler.getInfoStream() << "KLEE: done: total queries = " << queries <<
-  // "\n"
-  //                         << "KLEE: done: valid queries = " << queriesValid
-  //                         << "\n"
-  //                         << "KLEE: done: invalid queries = " <<
-  //                         queriesInvalid
-  //                         << "\n"
-  //                         << "KLEE: done: query cex = " <<
-  //                         queryCounterexamples
-  //                         << "\n";
-
-  // std::string statsStr;
-  // raw_string_ostream stats(statsStr);
-  // stats << '\n'
-  //       << "KLEE: done: total instructions = " << instructions << '\n'
-  //       << "KLEE: done: completed paths = " << handler.getNumPathsCompleted()
-  //       << '\n'
-  //       << "KLEE: done: partially completed paths = "
-  //       << handler.getNumPathsExplored() - handler.getNumPathsCompleted()
-  //       << '\n'
-  //       << "KLEE: done: generated tests = " << handler.getNumTestCases()
-  //       << '\n';
-
-  // bool useColors = llvm::errs().is_displayed();
-  // if (useColors)
-  //   llvm::errs().changeColor(llvm::raw_ostream::GREEN,
-  //                            /*bold=*/true,
-  //                            /*bg=*/false);
-
-  // llvm::errs() << stats.str();
-
-  // if (useColors)
-  //   llvm::errs().resetColor();
-
-  // handler.getInfoStream() << stats.str();
 }
