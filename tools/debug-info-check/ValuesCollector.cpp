@@ -1,14 +1,25 @@
 #include "ValuesCollector.h"
+#include "Variable.h"
 
+#include "klee/ADT/Ref.h"
 #include "klee/Core/Interpreter.h"
+#include "klee/Expr/Expr.h"
+#include "klee/Module/Cell.h"
+#include "klee/Module/KInstruction.h"
+#include "klee/Module/Printing.h"
 #include "klee/Statistics/Statistics.h"
+#include "klee/Support/Debug.h"
 #include "klee/Support/ErrorHandling.h"
 #include "klee/Support/FileHandling.h"
 #include "klee/Support/ModuleUtil.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/IR/Instruction.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
@@ -20,12 +31,19 @@
 using namespace klee;
 using namespace llvm;
 
+#define DEBUG_TYPE "values-collector"
+
 class VCHandler : public InterpreterHandler {
 private:
   StringRef outputDir;
+  VariablesAndLVRs &varsAndLVRs;
+  Interpreter *interpreter;
 
 public:
-  VCHandler(StringRef outputDir) : outputDir(outputDir) {}
+  VCHandler(StringRef outputDir, VariablesAndLVRs &varsAndLVRs)
+      : outputDir(outputDir), varsAndLVRs(varsAndLVRs) {}
+
+  void setInterpreter(Interpreter *interp) { interpreter = interp; }
 
   llvm::raw_ostream &getInfoStream() const override { return outs(); }
 
@@ -35,6 +53,9 @@ public:
 
   void incPathsCompleted() override {}
   void incPathsExplored(std::uint32_t num = 1) override {}
+
+  void visitBeforeExecution(ExecutionState &state, KInstruction *ki) override;
+  void visitAfterExecution(ExecutionState &state, KInstruction *ki) override;
 
   void processTestCase(const ExecutionState &state, const char *err,
                        const char *suffix) override {}
@@ -61,9 +82,36 @@ VCHandler::openOutputFile(const std::string &filename) {
   return f;
 }
 
+void VCHandler::visitBeforeExecution(ExecutionState &state, KInstruction *ki) {
+  const auto *instruction = ki->inst;
+  if (!isa<StoreInst>(*instruction))
+    return;
+
+  // Look for ranges where this was the producer value
+  const auto matchingRanges =
+      make_filter_range(varsAndLVRs, [&](VariableAndLVR &pair) {
+        return pair.second.producerValue == instruction;
+      });
+
+  // TODO: Tweak this for other instructions...
+  const auto symbolicValue = interpreter->getOperandCell(ki, 0, state).value;
+
+  for (VariableAndLVR &pair : matchingRanges) {
+    const auto &var = pair.first;
+    auto &range = pair.second;
+    range.producedSymbolicValue = symbolicValue;
+    KLEE_DEBUG(dbgs() << "Collected value for `" << var.name << "`\n");
+    KLEE_DEBUG(dbgs() << printInstruction(*instruction) << "\n");
+    KLEE_DEBUG(dbgs() << symbolicValue << "\n");
+  }
+}
+
+void VCHandler::visitAfterExecution(ExecutionState &state, KInstruction *ki) {}
+
 void collectValues(StringRef runtimeDir,
                    std::unique_ptr<llvm::Module> mainModule,
-                   StringRef functionName, StringRef outputDir) {
+                   StringRef functionName, StringRef outputDir,
+                   VariablesAndLVRs &varsAndLVRs) {
   LLVMContext &ctx = mainModule->getContext();
   const std::string &moduleTriple = mainModule->getTargetTriple();
   std::string hostTriple = llvm::sys::getDefaultTargetTriple();
@@ -110,11 +158,11 @@ void collectValues(StringRef runtimeDir,
   // TODO: Program args and environment...?
 
   Interpreter::InterpreterOptions interpreterOpts;
-  VCHandler handler(outputDir);
+  VCHandler handler(outputDir, varsAndLVRs);
   std::unique_ptr<Interpreter> interpreter(
       Interpreter::create(ctx, interpreterOpts, &handler));
   assert(interpreter);
-  // handler.setInterpreter(interpreter);
+  handler.setInterpreter(interpreter.get());
 
   auto finalModule = interpreter->setModule(modules, moduleOpts);
   Function *mainFn = finalModule->getFunction(functionName);

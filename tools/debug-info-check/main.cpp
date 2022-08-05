@@ -352,28 +352,28 @@ int main(int argc, char **argv) {
     outs() << mismatched.size() << " mismatched\n";
   }
 
+  VariablesAndLVRs beforeFlattenedRanges;
+  for (const auto &pair : beforeVariableToLVRs) {
+    const auto &variable = pair.first;
+    for (const auto &range : pair.second) {
+      beforeFlattenedRanges.push_back(std::make_pair(variable, range));
+    }
+  }
+  sort(beforeFlattenedRanges);
+
+  VariablesAndLVRs afterFlattenedRanges;
+  for (const auto &pair : afterVariableToLVRs) {
+    const auto &variable = pair.first;
+    for (const auto &range : pair.second) {
+      afterFlattenedRanges.push_back(std::make_pair(variable, range));
+    }
+  }
+  sort(afterFlattenedRanges);
+
   {
-    SmallVector<std::pair<Variable, LiveValueRange>> beforeFlattenedRanges;
-    for (const auto &pair : beforeVariableToLVRs) {
-      const auto &variable = pair.first;
-      for (const auto &range : pair.second) {
-        beforeFlattenedRanges.push_back(std::make_pair(variable, range));
-      }
-    }
-    sort(beforeFlattenedRanges);
-
-    SmallVector<std::pair<Variable, LiveValueRange>> afterFlattenedRanges;
-    for (const auto &pair : afterVariableToLVRs) {
-      const auto &variable = pair.first;
-      for (const auto &range : pair.second) {
-        afterFlattenedRanges.push_back(std::make_pair(variable, range));
-      }
-    }
-    sort(afterFlattenedRanges);
-
     // TODO: Use pointers instead of copying...
-    SmallVector<std::pair<Variable, LiveValueRange>> mismatchedBeforeRanges;
-    SmallVector<std::pair<Variable, LiveValueRange>> mismatchedAfterRanges;
+    VariablesAndLVRs mismatchedBeforeRanges;
+    VariablesAndLVRs mismatchedAfterRanges;
     // TODO: Be less lazy here, write a loop like a normal person...
     std::set_difference(
         beforeFlattenedRanges.begin(), beforeFlattenedRanges.end(),
@@ -421,7 +421,8 @@ int main(int argc, char **argv) {
                e.message().c_str());
   }
   // TODO: Inject our own automatic symbolic wrapper
-  collectValues(runtimeDir, std::move(beforeModule), "main", outputDir);
+  collectValues(runtimeDir, std::move(beforeModule), "main", outputDir,
+                beforeFlattenedRanges);
 
   outs() << "\n";
   if (summary) {

@@ -558,6 +558,11 @@ public:
 
   MergingSearcher *getMergingSearcher() const { return mergingSearcher; };
   void setMergingSearcher(MergingSearcher *ms) { mergingSearcher = ms; };
+
+  const Cell &getOperandCell(KInstruction *ki, unsigned index,
+                             ExecutionState &state) const override {
+    return eval(ki, index, state);
+  }
 };
   
 } // End klee namespace

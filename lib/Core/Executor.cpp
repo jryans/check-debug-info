@@ -3622,7 +3622,9 @@ void Executor::run(ExecutionState &initialState) {
     stepInstruction(state);
 
     printTraceBeforeExecution(state, ki);
+    interpreterHandler->visitBeforeExecution(state, ki);
     executeInstruction(state, ki);
+    interpreterHandler->visitAfterExecution(state, ki);
     printTraceAfterExecution(state, ki);
     timers.invoke();
     if (::dumpStates) dumpStates();

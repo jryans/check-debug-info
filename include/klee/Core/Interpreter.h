@@ -26,8 +26,10 @@ class raw_fd_ostream;
 }
 
 namespace klee {
+struct Cell;
 class ExecutionState;
 class Interpreter;
+struct KInstruction;
 class TreeStreamWriter;
 
 class InterpreterHandler {
@@ -42,6 +44,9 @@ public:
 
   virtual void incPathsCompleted() = 0;
   virtual void incPathsExplored(std::uint32_t num = 1) = 0;
+
+  virtual void visitBeforeExecution(ExecutionState &state, KInstruction *ki) {}
+  virtual void visitAfterExecution(ExecutionState &state, KInstruction *ki) {}
 
   virtual void processTestCase(const ExecutionState &state,
                                const char *err,
@@ -163,6 +168,9 @@ public:
 
   virtual void getCoveredLines(const ExecutionState &state,
                                std::map<const std::string*, std::set<unsigned> > &res) = 0;
+
+  virtual const Cell &getOperandCell(KInstruction *ki, unsigned index,
+                                     ExecutionState &state) const = 0;
 };
 
 } // End klee namespace

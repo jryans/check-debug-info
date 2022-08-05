@@ -1,6 +1,8 @@
 #ifndef VALUESCOLLECTOR_H
 #define VALUESCOLLECTOR_H
 
+#include "Variable.h"
+
 #include <memory>
 
 namespace llvm {
@@ -11,6 +13,7 @@ class StringRef;
 void collectValues(llvm::StringRef runtimeDir,
                    std::unique_ptr<llvm::Module> module,
                    llvm::StringRef functionName,
-                   llvm::StringRef outputDir);
+                   llvm::StringRef outputDir,
+                   VariablesAndLVRs &varsAndLVRs);
 
 #endif
