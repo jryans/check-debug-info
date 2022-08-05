@@ -46,6 +46,7 @@ public:
   virtual void incPathsCompleted() = 0;
   virtual void incPathsExplored(std::uint32_t num = 1) = 0;
 
+  virtual void visitArguments(ExecutionState &state, KFunction *kf) {}
   virtual void visitBeforeExecution(ExecutionState &state, KInstruction *ki) {}
   virtual void visitAfterExecution(ExecutionState &state, KInstruction *ki) {}
 

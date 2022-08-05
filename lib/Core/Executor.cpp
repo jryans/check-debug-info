@@ -2094,6 +2094,8 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
     unsigned numFormals = f->arg_size();
     for (unsigned k = 0; k < numFormals; k++)
       bindArgument(kf, k, state, arguments[k]);
+
+    interpreterHandler->visitArguments(state, kf);
   }
 }
 

@@ -6,6 +6,7 @@
 #include "klee/Expr/Expr.h"
 #include "klee/Module/Cell.h"
 #include "klee/Module/KInstruction.h"
+#include "klee/Module/KModule.h"
 #include "klee/Module/Printing.h"
 #include "klee/Statistics/Statistics.h"
 #include "klee/Support/Debug.h"
@@ -16,6 +17,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/IR/Argument.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
@@ -56,6 +59,7 @@ public:
   void incPathsCompleted() override {}
   void incPathsExplored(std::uint32_t num = 1) override {}
 
+  void visitArguments(ExecutionState &state, KFunction *kf) override;
   void visitBeforeExecution(ExecutionState &state, KInstruction *ki) override;
   void visitAfterExecution(ExecutionState &state, KInstruction *ki) override;
   void recordValue(const Value *producer, ref<Expr> symbolicValue);
@@ -83,6 +87,15 @@ VCHandler::openOutputFile(const std::string &filename) {
     return nullptr;
   }
   return f;
+}
+
+void VCHandler::visitArguments(ExecutionState &state, KFunction *kf) {
+  const auto *function = kf->function;
+  for (size_t i = 0, e = function->arg_size(); i < e; ++i) {
+    const auto *arg = function->getArg(i);
+    ref<Expr> symbolicValue = interpreter->getArgumentCell(state, kf, i).value;
+    recordValue(arg, symbolicValue);
+  }
 }
 
 void VCHandler::visitBeforeExecution(ExecutionState &state, KInstruction *ki) {
