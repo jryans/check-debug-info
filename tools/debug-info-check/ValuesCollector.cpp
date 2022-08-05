@@ -37,15 +37,17 @@ class VCHandler : public InterpreterHandler {
 private:
   StringRef outputDir;
   VariablesAndLVRs &varsAndLVRs;
+  std::unique_ptr<llvm::raw_fd_ostream> infoStream;
   Interpreter *interpreter;
 
 public:
   VCHandler(StringRef outputDir, VariablesAndLVRs &varsAndLVRs)
-      : outputDir(outputDir), varsAndLVRs(varsAndLVRs) {}
+      : outputDir(outputDir), varsAndLVRs(varsAndLVRs),
+        infoStream(openOutputFile("info")) {}
 
   void setInterpreter(Interpreter *interp) { interpreter = interp; }
 
-  llvm::raw_ostream &getInfoStream() const override { return outs(); }
+  llvm::raw_ostream &getInfoStream() const override { return *infoStream; }
 
   std::string getOutputFilename(const std::string &filename) override;
   std::unique_ptr<llvm::raw_fd_ostream>
