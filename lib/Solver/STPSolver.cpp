@@ -44,8 +44,6 @@ llvm::cl::opt<bool> IgnoreSolverFailures(
 
 #define vc_bvBoolExtract IAMTHESPAWNOFSATAN
 
-static unsigned char *shared_memory_ptr = nullptr;
-static int shared_memory_id = 0;
 // Darwin by default has a very small limit on the maximum amount of shared
 // memory, which will quickly be exhausted by KLEE running its tests in
 // parallel. For now, we work around this by just requesting a smaller size --
@@ -71,6 +69,8 @@ private:
   time::Span timeout;
   bool useForkedSTP;
   SolverRunStatus runStatusCode;
+  unsigned char *shared_memory_ptr = nullptr;
+  int shared_memory_id = 0;
 
 public:
   explicit STPSolverImpl(bool useForkedSTP, bool optimizeDivides = true);
@@ -86,6 +86,11 @@ public:
                             std::vector<std::vector<unsigned char>> &values,
                             bool &hasSolution) override;
   SolverRunStatus getOperationStatusCode() override;
+  SolverImpl::SolverRunStatus
+  runAndGetCexForked(::VC vc, STPBuilder *builder, ::VCExpr q,
+                     const std::vector<const Array *> &objects,
+                     std::vector<std::vector<unsigned char>> &values,
+                     bool &hasSolution, time::Span timeout);
 };
 
 STPSolverImpl::STPSolverImpl(bool useForkedSTP, bool optimizeDivides)
@@ -209,11 +214,11 @@ runAndGetCex(::VC vc, STPBuilder *builder, ::VCExpr q,
 
 static void stpTimeoutHandler(int x) { _exit(52); }
 
-static SolverImpl::SolverRunStatus
-runAndGetCexForked(::VC vc, STPBuilder *builder, ::VCExpr q,
-                   const std::vector<const Array *> &objects,
-                   std::vector<std::vector<unsigned char>> &values,
-                   bool &hasSolution, time::Span timeout) {
+SolverImpl::SolverRunStatus STPSolverImpl::runAndGetCexForked(
+    ::VC vc, STPBuilder *builder, ::VCExpr q,
+    const std::vector<const Array *> &objects,
+    std::vector<std::vector<unsigned char>> &values, bool &hasSolution,
+    time::Span timeout) {
   unsigned char *pos = shared_memory_ptr;
   unsigned sum = 0;
   for (const auto object : objects)
