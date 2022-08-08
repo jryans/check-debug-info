@@ -6,6 +6,7 @@
 #include "klee/Expr/Constraints.h"
 #include "klee/Expr/Expr.h"
 #include "klee/Expr/ExprBuilder.h"
+#include "klee/Expr/ExprUtil.h"
 #include "klee/Expr/Parser/Parser.h"
 #include "klee/Module/InstructionInfoTable.h"
 #include "klee/Module/Printing.h"
@@ -484,15 +485,27 @@ int main(int argc, char **argv) {
       // TODO: Deduplicate the data structures directly
       std::string queryStr;
       raw_string_ostream queryStream(queryStr);
-      // TODO: Gather the correct name and size here...
-      queryStream << "array n[4] : w32 -> w8 = symbolic\n";
+      // TODO: Check whether the after expression uses some unexpected
+      // additional symbolic variable
+      std::vector<const Array *> symbolicArrays;
+      findSymbolicObjects(beforeSymValue, symbolicArrays);
+      for (const auto *array : symbolicArrays) {
+        queryStream << "array " << array->getName();
+        queryStream << "[" << array->getSize() << "]";
+        // KLEE only supports these domain and range sizes currently
+        queryStream << " : w32 -> w8 = symbolic\n";
+      }
       queryStream << "(query [] " << expr << ")";
 
       const auto queryMB = MemoryBuffer::getMemBuffer(queryStream.str());
       auto *parser =
           Parser::Create("", queryMB.get(), builder, /*clearArray=*/false);
-      const auto *decl = parser->ParseTopLevelDecl();
-      assert(isa<ArrayDecl>(decl) && "Array lost during the roundtrip journey");
+      for (size_t i = 0, e = symbolicArrays.size(); i < e; ++i) {
+        const auto *decl = parser->ParseTopLevelDecl();
+        assert(isa<ArrayDecl>(decl) &&
+               "Array lost during the roundtrip journey");
+        delete decl;
+      }
       const auto *command = parser->ParseTopLevelDecl();
       if (parser->GetNumErrors()) {
         klee_error("Unable to parse query");
@@ -519,7 +532,6 @@ int main(int argc, char **argv) {
       else
         ++neValues;
 
-      delete decl;
       delete command;
       delete parser;
     }
