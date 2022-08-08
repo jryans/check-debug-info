@@ -1,8 +1,16 @@
 #include "ValuesCollector.h"
 #include "Variable.h"
 
+#include "klee/ADT/Ref.h"
+#include "klee/Core/Interpreter.h"
+#include "klee/Expr/Constraints.h"
+#include "klee/Expr/Expr.h"
+#include "klee/Expr/ExprBuilder.h"
+#include "klee/Expr/Parser/Parser.h"
 #include "klee/Module/InstructionInfoTable.h"
 #include "klee/Module/Printing.h"
+#include "klee/Solver/Common.h"
+#include "klee/Solver/Solver.h"
 #include "klee/Solver/SolverCmdLine.h"
 #include "klee/Support/Debug.h"
 #include "klee/Support/ErrorHandling.h"
@@ -31,6 +39,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
@@ -47,6 +56,7 @@
 #include <vector>
 
 using namespace klee;
+using namespace klee::expr;
 using namespace llvm;
 
 #define DEBUG_TYPE "debug-info-check"
@@ -154,7 +164,7 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
   // TODO: Terminate previous range
   KLEE_DEBUG(dbgs() << "  Added live value range starting at "
                     << range.startLine << "\n");
-  liveValueRanges.push_back(range);
+  liveValueRanges.push_back(std::move(range));
   return true;
 }
 
@@ -425,19 +435,101 @@ int main(int argc, char **argv) {
   std::string runtimeDir = getRuntimeLibraryPath(argv[0]);
 
   // Collect symbolic values for before module
+  std::unique_ptr<Interpreter> beforeInterpreter;
   {
     SmallString<128> outputDir = createOutputDir(beforeFile);
     // TODO: Inject our own automatic symbolic wrapper
-    collectValues(runtimeDir, std::move(beforeModule), "main", outputDir,
-                  beforeFlattenedRanges);
+    beforeInterpreter = collectValues(runtimeDir, std::move(beforeModule),
+                                      "main", outputDir, beforeFlattenedRanges);
   }
 
   // Collect symbolic values for after module
+  std::unique_ptr<Interpreter> afterInterpreter;
   {
     SmallString<128> outputDir = createOutputDir(afterFile);
     // TODO: Inject our own automatic symbolic wrapper
-    collectValues(runtimeDir, std::move(afterModule), "main", outputDir,
-                  afterFlattenedRanges);
+    afterInterpreter = collectValues(runtimeDir, std::move(afterModule), "main",
+                                     outputDir, afterFlattenedRanges);
+  }
+
+  {
+    size_t eqValues = 0, neValues = 0;
+
+    Solver *coreSolver = createCoreSolver(CoreSolverToUse);
+    // TODO: Remove these path args...
+    Solver *solver = constructSolverChain(coreSolver, "", "", "", "");
+    ExprBuilder *builder = createDefaultExprBuilder();
+
+    for (size_t i = 0, e = std::min(beforeFlattenedRanges.size(),
+                                    afterFlattenedRanges.size());
+         i < e; ++i) {
+      const auto &before = beforeFlattenedRanges[i];
+      const auto &after = afterFlattenedRanges[i];
+      const auto &beforeSymValue = before.second.producedSymbolicValue;
+      const auto &afterSymValue = after.second.producedSymbolicValue;
+      if (!beforeSymValue || !afterSymValue)
+        continue;
+
+      KLEE_DEBUG(dbgs() << "Checking equivalence of\n"
+                        << beforeSymValue << "\n"
+                        << "and"
+                        << "\n"
+                        << afterSymValue << "\n");
+
+      // This is conceptually the expression we want to check...
+      ref<Expr> expr = builder->Eq(beforeSymValue, afterSymValue);
+      // ...except any arrays point to separate instance at the moment.
+      // For now, the "simplest" way to deduplicate them is to roundtrip through
+      // the parser, which will do it for us.
+      // TODO: Deduplicate the data structures directly
+      std::string queryStr;
+      raw_string_ostream queryStream(queryStr);
+      // TODO: Gather the correct name and size here...
+      queryStream << "array n[4] : w32 -> w8 = symbolic\n";
+      queryStream << "(query [] " << expr << ")";
+
+      const auto queryMB = MemoryBuffer::getMemBuffer(queryStream.str());
+      auto *parser =
+          Parser::Create("", queryMB.get(), builder, /*clearArray=*/false);
+      const auto *decl = parser->ParseTopLevelDecl();
+      assert(isa<ArrayDecl>(decl) && "Array lost during the roundtrip journey");
+      const auto *command = parser->ParseTopLevelDecl();
+      if (parser->GetNumErrors()) {
+        klee_error("Unable to parse query");
+      }
+      assert(isa<QueryCommand>(command) &&
+             "Query lost during the roundtrip journey");
+      const auto *queryCommand = cast<QueryCommand>(command);
+      KLEE_DEBUG(dbgs() << "Combined query\n" << queryCommand->Query << "\n");
+
+      ConstraintSet constraints;
+      Query query(constraints, queryCommand->Query);
+
+      bool result;
+      if (!solver->mustBeTrue(query, result))
+        klee_error("Solver unable to process query");
+
+      if (!result) {
+        outs() << "Symbolic values don't match:\n";
+        outs() << queryCommand->Query << "\n";
+      }
+
+      if (result)
+        ++eqValues;
+      else
+        ++neValues;
+
+      delete decl;
+      delete command;
+      delete parser;
+    }
+
+    bool match = !neValues;
+    summary &= match;
+
+    outs() << (match ? "✅ " : "🐣 ");
+    outs() << eqValues << " matching symbolic values, ";
+    outs() << neValues << " mismatched symbolic values\n";
   }
 
   outs() << "\n";

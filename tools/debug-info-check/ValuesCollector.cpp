@@ -140,10 +140,10 @@ void VCHandler::recordValue(const Value *producer, ref<Expr> symbolicValue) {
   }
 }
 
-void collectValues(StringRef runtimeDir,
-                   std::unique_ptr<llvm::Module> mainModule,
-                   StringRef functionName, StringRef outputDir,
-                   VariablesAndLVRs &varsAndLVRs) {
+std::unique_ptr<Interpreter>
+collectValues(StringRef runtimeDir, std::unique_ptr<llvm::Module> mainModule,
+              StringRef functionName, StringRef outputDir,
+              VariablesAndLVRs &varsAndLVRs) {
   LLVMContext &ctx = mainModule->getContext();
   const std::string &moduleTriple = mainModule->getTargetTriple();
   std::string hostTriple = llvm::sys::getDefaultTargetTriple();
@@ -196,6 +196,9 @@ void collectValues(StringRef runtimeDir,
   assert(interpreter);
   handler.setInterpreter(interpreter.get());
 
+  // `interpreter` now acts as though it owns the modules, though it doesn't
+  // make that entirely clear since it takes the `unique_ptr` by reference...
+  // Need to keep `interpreter` alive to avoid the modules being deleted.
   auto finalModule = interpreter->setModule(modules, moduleOpts);
   Function *mainFn = finalModule->getFunction(functionName);
   if (!mainFn) {
@@ -223,4 +226,8 @@ void collectValues(StringRef runtimeDir,
   // Stats manager holds onto data after execution
   // Reset it to get ready for the next run
   theStatisticManager->reset();
+
+  // The `interpreter` owns the `KModule` and `Expr`s, so we return it here to
+  // keep those bits alive.
+  return interpreter;
 }

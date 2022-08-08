@@ -5,15 +5,18 @@
 
 #include <memory>
 
+namespace klee {
+class Interpreter;
+}
+
 namespace llvm {
 class Module;
 class StringRef;
 } // namespace llvm
 
-void collectValues(llvm::StringRef runtimeDir,
-                   std::unique_ptr<llvm::Module> module,
-                   llvm::StringRef functionName,
-                   llvm::StringRef outputDir,
-                   VariablesAndLVRs &varsAndLVRs);
+std::unique_ptr<klee::Interpreter>
+collectValues(llvm::StringRef runtimeDir, std::unique_ptr<llvm::Module> module,
+              llvm::StringRef functionName, llvm::StringRef outputDir,
+              VariablesAndLVRs &varsAndLVRs);
 
 #endif
