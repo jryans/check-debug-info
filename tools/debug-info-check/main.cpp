@@ -76,6 +76,11 @@ cl::opt<std::string>
 
 } // namespace
 
+namespace klee {
+extern cl::opt<unsigned> MaxForks;
+extern cl::opt<bool> DebugExecutionTrace;
+} // namespace klee
+
 bool addLiveValueRange(const InstructionInfoTable &instrInfo,
                        const DbgVariableIntrinsic *varIntrinsic,
                        const Variable &variable, const StringRef producerKind,
@@ -276,6 +281,10 @@ int main(int argc, char **argv) {
 
   cl::SetVersionPrinter(printVersion);
   KCommandLine::HideOptions(cl::getGeneralCategory());
+
+  // Use adjusted symbolic defaults
+  MaxForks.setInitialValue(4);
+  DebugExecutionTrace.setInitialValue(true);
 
   cl::ParseCommandLineOptions(argc, argv, "Debug info consistency check\n");
 

@@ -121,9 +121,6 @@ cl::opt<std::string> MaxTime(
              "Set to 0s to disable (default=0s)"),
     cl::init("0s"),
     cl::cat(TerminationCat));
-} // namespace klee
-
-namespace {
 
 /*** Test generation options ***/
 
@@ -433,7 +430,7 @@ cl::opt<bool> DebugCheckForImpliedValues(
     cl::desc("Debug the implied value optimization"),
     cl::cat(DebugCat));
 
-} // namespace
+} // namespace klee
 
 // XXX hack
 extern "C" unsigned dumpStates, dumpPTree;
