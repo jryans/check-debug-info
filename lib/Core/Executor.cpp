@@ -372,6 +372,12 @@ cl::opt<std::string> TimerInterval(
     cl::init("1s"),
     cl::cat(TerminationCat));
 
+cl::opt<bool> OnlyUncoveredBranchTargets(
+    "only-uncovered-branch-targets",
+    cl::init(false),
+    cl::desc("Only jump to uncovered branch targets (default=false)."),
+    cl::cat(TerminationCat));
+
 
 /*** Debugging options ***/
 
@@ -2110,14 +2116,18 @@ void Executor::transferToBasicBlock(BasicBlock *dst, BasicBlock *src,
   // With that done we simply set an index in the state so that PHI
   // instructions know which argument to eval, set the pc, and continue.
   
-  // XXX this lookup has to go ?
-  KFunction *kf = state.stack.back().kf;
-  unsigned entry = kf->basicBlockEntry[dst];
-  state.pc = &kf->instructions[entry];
+  state.pc = getBasicBlockEntry(dst, state);
   if (state.pc->inst->getOpcode() == Instruction::PHI) {
     PHINode *first = static_cast<PHINode*>(state.pc->inst);
     state.incomingBBIndex = first->getBasicBlockIndex(src);
   }
+}
+
+KInstIterator Executor::getBasicBlockEntry(llvm::BasicBlock *block,
+                                           ExecutionState &state) const {
+  KFunction *kf = state.stack.back().kf;
+  unsigned entry = kf->basicBlockEntry[block];
+  return &kf->instructions[entry];
 }
 
 /// Compute the true target of a function call, resolving LLVM aliases
@@ -2254,6 +2264,36 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     if (bi->isUnconditional()) {
       transferToBasicBlock(bi->getSuccessor(0), bi->getParent(), state);
     } else {
+      // TODO: Try to set up a believable state for each path first...?
+      if (OnlyUncoveredBranchTargets && statsTracker &&
+          state.stack.back().kf->trackCoverage) {
+        auto *firstBlock = bi->getSuccessor(0);
+        auto *secondBlock = bi->getSuccessor(1);
+        const auto &firstEntry = getBasicBlockEntry(firstBlock, state);
+        const auto &secondEntry = getBasicBlockEntry(secondBlock, state);
+        bool isFirstCovered = statsTracker->isInstructionCovered(firstEntry);
+        bool isSecondCovered = statsTracker->isInstructionCovered(secondEntry);
+        if (isFirstCovered && isSecondCovered) {
+          if (DebugExecutionTrace)
+            *debugExecTraceFile << "Both blocks covered, ending state\n";
+          terminateStateEarly(state, "Both branch targets covered.",
+                              StateTerminationType::BranchTargetsCovered);
+          break;
+        }
+        if (!isFirstCovered && isSecondCovered) {
+          if (DebugExecutionTrace)
+            *debugExecTraceFile << "Only first block uncovered, jumping...\n";
+          transferToBasicBlock(firstBlock, bi->getParent(), state);
+          break;
+        }
+        if (isFirstCovered && !isSecondCovered) {
+          if (DebugExecutionTrace)
+            *debugExecTraceFile << "Only second block uncovered, jumping...\n";
+          transferToBasicBlock(secondBlock, bi->getParent(), state);
+          break;
+        }
+      }
+
       // FIXME: Find a way that we don't have this hidden dependency.
       assert(bi->getCondition() == bi->getOperand(0) &&
              "Wrong operand index!");

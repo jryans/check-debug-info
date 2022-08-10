@@ -87,6 +87,8 @@ namespace klee {
     void markBranchVisited(ExecutionState *visitedTrue,
                            ExecutionState *visitedFalse);
 
+    bool isInstructionCovered(KInstruction *instruction) const;
+
     // called when execution is done and stats files should be flushed
     void done();
 

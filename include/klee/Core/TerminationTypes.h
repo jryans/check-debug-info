@@ -20,7 +20,8 @@
   TTYPE(MaxDepth, 3U, "early")                                                 \
   TTYPE(OutOfMemory, 4U, "early")                                              \
   TTYPE(OutOfStackMemory, 5U, "early")                                         \
-  MARK(EARLY, 5U)                                                              \
+  TTYPE(BranchTargetsCovered, 6U, "covered")                                   \
+  MARK(EARLY, 6U)                                                              \
   TTYPE(Solver, 8U, "solver.err")                                              \
   MARK(SOLVERERR, 8U)                                                          \
   TTYPE(Abort, 10U, "abort.err")                                               \

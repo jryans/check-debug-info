@@ -79,6 +79,7 @@ cl::opt<std::string>
 namespace klee {
 extern cl::opt<unsigned> MaxForks;
 extern cl::opt<bool> DebugExecutionTrace;
+extern cl::opt<bool> OnlyUncoveredBranchTargets;
 } // namespace klee
 
 bool addLiveValueRange(const InstructionInfoTable &instrInfo,
@@ -285,6 +286,7 @@ int main(int argc, char **argv) {
   // Use adjusted symbolic defaults
   MaxForks.setInitialValue(4);
   DebugExecutionTrace.setInitialValue(true);
+  OnlyUncoveredBranchTargets.setInitialValue(true);
 
   cl::ParseCommandLineOptions(argc, argv, "Debug info consistency check\n");
 

@@ -241,6 +241,8 @@ private:
   void transferToBasicBlock(llvm::BasicBlock *dst, 
 			    llvm::BasicBlock *src,
 			    ExecutionState &state);
+  KInstIterator getBasicBlockEntry(llvm::BasicBlock *block,
+                                   ExecutionState &state) const;
 
   void callExternalFunction(ExecutionState &state,
                             KInstruction *target,
