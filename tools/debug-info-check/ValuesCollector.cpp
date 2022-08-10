@@ -21,6 +21,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Host.h"
@@ -61,7 +62,6 @@ public:
 
   void visitArguments(ExecutionState &state, KFunction *kf) override;
   void visitBeforeExecution(ExecutionState &state, KInstruction *ki) override;
-  void visitAfterExecution(ExecutionState &state, KInstruction *ki) override;
   void recordValue(const Value *producer, ref<Expr> symbolicValue);
 
   void processTestCase(const ExecutionState &state, const char *err,
@@ -101,33 +101,34 @@ void VCHandler::visitArguments(ExecutionState &state, KFunction *kf) {
 void VCHandler::visitBeforeExecution(ExecutionState &state, KInstruction *ki) {
   const auto *instruction = ki->inst;
 
-  // Stores are visited before execution
-  if (!isa<StoreInst>(*instruction))
+  // Stores are visited for writes to `dbg.declare` intrinsic targets
+  // `dbg.value` intrinsics are visited for their operands (incl. constants)
+  if (!isa<StoreInst>(*instruction) && !isa<DbgValueInst>(*instruction))
     return;
-  const Value *producer = instruction;
-  ref<Expr> symbolicValue = interpreter->getOperandCell(state, ki, 0).value;
 
-  recordValue(producer, symbolicValue);
-}
-
-void VCHandler::visitAfterExecution(ExecutionState &state, KInstruction *ki) {
-  const auto *instruction = ki->inst;
-
-  // Non-stores are visited after execution
-  if (isa<StoreInst>(*instruction))
-    return;
-  const Value *producer = instruction;
-  ref<Expr> symbolicValue = interpreter->getDestCell(state, ki).value;
-
-  recordValue(producer, symbolicValue);
+  if (const auto *storeInstruction = dyn_cast<StoreInst>(instruction)) {
+    ref<Expr> symbolicValue = interpreter->getOperandCell(state, ki, 0).value;
+    recordValue(storeInstruction, symbolicValue);
+  } else if (const auto *valueIntrinsic = dyn_cast<DbgValueInst>(instruction)) {
+    // Calls (incl. intrinsics) store the call target as operand 0, so their
+    // real operands are shifted over by 1.
+    ref<Expr> symbolicValue = interpreter->getOperandCell(state, ki, 1).value;
+    recordValue(valueIntrinsic, symbolicValue);
+  }
 }
 
 void VCHandler::recordValue(const Value *producer, ref<Expr> symbolicValue) {
+  assert(producer && "Symbolic value producer missing");
+  if (!symbolicValue)
+    return;
+
   // Look for ranges where this was the producer
   // TODO: Gather all producers up front first for faster filtering...?
   const auto matchingRanges =
       make_filter_range(varsAndLVRs, [&](VariableAndLVR &pair) {
-        return pair.second.producer == producer;
+        const auto &range = pair.second;
+        // TODO: Re-think producer vs. intrinsic structure...?
+        return range.producer == producer || range.varIntrinsic == producer;
       });
 
   for (VariableAndLVR &pair : matchingRanges) {

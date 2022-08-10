@@ -29,6 +29,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ValueSymbolTable.h"
 #include "llvm/IR/Verifier.h"
@@ -394,8 +395,14 @@ static int getOperandNum(Value *v,
     return registerMap[inst];
   } else if (Argument *a = dyn_cast<Argument>(v)) {
     return a->getArgNo();
-  } else if (isa<BasicBlock>(v) || isa<InlineAsm>(v) ||
-             isa<MetadataAsValue>(v)) {
+  } else if (isa<BasicBlock>(v) || isa<InlineAsm>(v)) {
+    return -1;
+  } else if (const auto *metadataAsValue = dyn_cast<MetadataAsValue>(v)) {
+    // Track values wrapped as metadata going into e.g. `dbg.value` intrinsics
+    if (const auto *valueAsMetadata =
+            dyn_cast<ValueAsMetadata>(metadataAsValue->getMetadata())) {
+      return getOperandNum(valueAsMetadata->getValue(), registerMap, km, ki);
+    }
     return -1;
   } else {
     assert(isa<Constant>(v));
