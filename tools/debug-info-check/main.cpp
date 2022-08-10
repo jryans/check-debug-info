@@ -441,6 +441,12 @@ int main(int argc, char **argv) {
     }
   }
 
+  if (!summary) {
+    outs() << "\n";
+    outs() << "🔔 Some range checks failed, skipping value checks\n";
+    return EXIT_FAILURE;
+  }
+
   // TODO: Move this closer to actual JIT usage...
   InitializeNativeTarget();
 
