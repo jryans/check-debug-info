@@ -4552,6 +4552,11 @@ void Executor::runFunctionAsMain(Function *f,
     statsTracker->done();
 
   Context::reset();
+
+  if (debugInstFile)
+    debugInstFile->flush();
+  if (debugExecTraceFile)
+    debugExecTraceFile->flush();
 }
 
 unsigned Executor::getPathStreamID(const ExecutionState &state) {
