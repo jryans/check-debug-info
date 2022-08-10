@@ -7,7 +7,6 @@
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/Regex.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -32,13 +31,25 @@ std::string printInstruction(const Instruction &instruction) {
   if (debugLoc) {
     out << ", l" << debugLoc.getLine() << " c" << debugLoc.getCol();
     out.flush();
-    Regex dbgAttachment(", !dbg ![0-9]+");
-    str = dbgAttachment.sub("", str);
+    std::regex dbgAttachment(", !dbg ![0-9]+");
+    str = std::regex_replace(str, dbgAttachment, "");
   }
 
   // Remove alignment
-  Regex alignment(", align [0-9]+");
-  str = alignment.sub("", str);
+  std::regex alignment(", align [0-9]+");
+  str = std::regex_replace(str, alignment, "");
+
+  // Simplify intrinsics
+  std::regex intrinsicPrefix("call void @llvm.");
+  str = std::regex_replace(str, intrinsicPrefix, "@");
+
+  // Remove "metadata" prefix
+  std::regex metadataPrefix("metadata ");
+  str = std::regex_replace(str, metadataPrefix, "");
+
+  // Remove empty `DIExpression`s
+  std::regex emptyDiExpression(", !DIExpression\\(\\)");
+  str = std::regex_replace(str, emptyDiExpression, "");
 
   return str;
 }
