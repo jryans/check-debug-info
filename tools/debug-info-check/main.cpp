@@ -430,12 +430,12 @@ int main(int argc, char **argv) {
            << " mismatched\n";
 
     for (const auto &varRange : mismatchedBeforeRanges) {
-      outs() << "Mismatched before `" << varRange.first.name << "` ";
+      outs() << "🐣 Mismatched before `" << varRange.first.name << "` ";
       outs() << "range " << varRange.second << " ";
       outs() << "from " << printValue(*varRange.second.producer) << "\n";
     }
     for (const auto &varRange : mismatchedAfterRanges) {
-      outs() << "Mismatched after `" << varRange.first.name << "` ";
+      outs() << "🐣 Mismatched after `" << varRange.first.name << "` ";
       outs() << "range " << varRange.second << " ";
       outs() << "from " << printValue(*varRange.second.producer) << "\n";
     }
@@ -477,15 +477,33 @@ int main(int argc, char **argv) {
          i < e; ++i) {
       const auto &before = beforeFlattenedRanges[i];
       const auto &after = afterFlattenedRanges[i];
-      const auto &beforeSymValue = before.second.producedSymbolicValue;
-      const auto &afterSymValue = after.second.producedSymbolicValue;
-      if (!beforeSymValue || !afterSymValue)
+      assert(before.first == after.first && "Variables don't match");
+      const Variable &variable = before.first;
+      const LiveValueRange &beforeRange = before.second;
+      const LiveValueRange &afterRange = after.second;
+      const auto &beforeSymValue = beforeRange.producedSymbolicValue;
+      const auto &afterSymValue = afterRange.producedSymbolicValue;
+      if (!beforeSymValue) {
+        outs() << "🐣 Before `" << variable.name << "` ";
+        outs() << "range " << beforeRange << " has no symbolic value ";
+        outs() << "from " << printValue(*beforeRange.producer) << "\n";
+      }
+      if (!afterSymValue) {
+        outs() << "🐣 After `" << variable.name << "` ";
+        outs() << "range " << afterRange << " has no symbolic value ";
+        outs() << "from " << printValue(*afterRange.producer) << "\n";
+      }
+      if (!beforeSymValue || !afterSymValue) {
+        ++neValues;
         continue;
+      }
 
-      KLEE_DEBUG(dbgs() << "Checking equivalence of\n"
+      KLEE_DEBUG(dbgs() << "Checking equivalence of `" << variable.name << "` "
+                        << "from\n"
+                        << printValue(*beforeRange.producer) << "\n"
                         << beforeSymValue << "\n"
-                        << "and"
-                        << "\n"
+                        << "and\n"
+                        << printValue(*afterRange.producer) << "\n"
                         << afterSymValue << "\n");
 
       // This is conceptually the expression we want to check...
