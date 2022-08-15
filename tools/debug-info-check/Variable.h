@@ -37,28 +37,34 @@ struct Variable {
 struct LiveValueRange {
   unsigned int startLine;
   unsigned int endLine = UINT32_MAX;
+  // Range IDs are generated from `asmLine` relative ordering to ease comparison
+  unsigned int id;
 
   // Not checked during comparison
 
   const llvm::Value *producer;
   const llvm::DbgVariableIntrinsic *varIntrinsic;
+  // Producer or variable intrinsic assembly line
+  // Used for relative ordering of ranges with the same start line
+  unsigned int asmLine;
   // This cannot be `const` if we want `std::swap` to work...
   // TODO: Work out if this is a bug in `ref`
   klee::ref<klee::Expr> producedSymbolicValue;
 
   bool operator==(const LiveValueRange &other) const {
-    return std::tie(startLine, endLine) ==
-           std::tie(other.startLine, other.endLine);
+    return std::tie(startLine, endLine, id) ==
+           std::tie(other.startLine, other.endLine, other.id);
   }
 
   bool operator<(const LiveValueRange &other) const {
-    return std::tie(startLine, endLine) <
-           std::tie(other.startLine, other.endLine);
+    return std::tie(startLine, endLine, id) <
+           std::tie(other.startLine, other.endLine, other.id);
   }
 };
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
                                      const LiveValueRange &range) {
+  out << range.id << ": ";
   out << "[" << range.startLine << ", ";
   if (range.endLine == UINT32_MAX)
     out << "∞";

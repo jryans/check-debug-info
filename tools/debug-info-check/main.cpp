@@ -145,8 +145,7 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
   }
 
   LiveValueRange range = {};
-  range.producer = producer;
-  range.varIntrinsic = varIntrinsic;
+
   if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
     const auto debugLoc = producerInstruction->getDebugLoc();
     if (debugLoc)
@@ -168,7 +167,17 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
     outs() << ": missing line info\n";
     return false;
   }
+
   // TODO: Terminate previous range
+  range.producer = producer;
+  range.varIntrinsic = varIntrinsic;
+  // TODO: Should `producer` and `varIntrinsic` be merged somehow...?
+  if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
+    range.asmLine = instrInfo.getInfo(*producerInstruction).assemblyLine;
+  } else {
+    range.asmLine = instrInfo.getInfo(*varIntrinsic).assemblyLine;
+  }
+
   KLEE_DEBUG(dbgs() << "  Added live value range starting at "
                     << range.startLine << "\n");
   liveValueRanges.push_back(std::move(range));
@@ -263,6 +272,19 @@ bool gatherLiveValueRanges(const StringRef moduleKind, const Function &function,
   }
 
   return summary;
+}
+
+void generateRangeIDs(VariablesSet &variables, VariableToLVRs &variableToLVRs) {
+  for (const auto &variable : variables) {
+    auto &ranges = variableToLVRs[variable];
+    sort(ranges, [](const LiveValueRange &left, const LiveValueRange &right) {
+      return std::tie(left.startLine, left.endLine, left.asmLine) <
+             std::tie(right.startLine, right.endLine, right.asmLine);
+    });
+    for (size_t i = 0, e = ranges.size(); i < e; ++i) {
+      ranges[i].id = i;
+    }
+  }
 }
 
 SmallString<128> createOutputDir(StringRef moduleFile) {
@@ -374,8 +396,10 @@ int main(int argc, char **argv) {
 
   summary &= gatherLiveValueRanges("Before", beforeDefinition, beforeInstrInfo,
                                    beforeVariables, beforeVariableToLVRs);
+  generateRangeIDs(beforeVariables, beforeVariableToLVRs);
   summary &= gatherLiveValueRanges("After", afterDefinition, afterInstrInfo,
                                    afterVariables, afterVariableToLVRs);
+  generateRangeIDs(afterVariables, afterVariableToLVRs);
 
   {
     bool match = beforeVariables == afterVariables;
@@ -487,6 +511,8 @@ int main(int argc, char **argv) {
       const Variable &variable = before.first;
       const LiveValueRange &beforeRange = before.second;
       const LiveValueRange &afterRange = after.second;
+      // This comparison does _not_ check symbolic values
+      assert(beforeRange == afterRange && "Ranges don't match");
       const auto &beforeSymValue = beforeRange.producedSymbolicValue;
       const auto &afterSymValue = afterRange.producedSymbolicValue;
       if (!beforeSymValue) {
@@ -506,9 +532,11 @@ int main(int argc, char **argv) {
 
       KLEE_DEBUG(dbgs() << "Checking equivalence of `" << variable.name << "` "
                         << "from\n"
+                        << "range " << beforeRange << "\n"
                         << printValue(*beforeRange.producer) << "\n"
                         << beforeSymValue << "\n"
                         << "and\n"
+                        << "range " << afterRange << "\n"
                         << printValue(*afterRange.producer) << "\n"
                         << afterSymValue << "\n");
 
