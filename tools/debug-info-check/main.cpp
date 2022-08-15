@@ -540,6 +540,24 @@ int main(int argc, char **argv) {
                         << printValue(*afterRange.producer) << "\n"
                         << afterSymValue << "\n");
 
+      assert(beforeSymValue->getWidth() == afterSymValue->getWidth() &&
+             "Bit widths don't match");
+
+      // When both sides are constants, we compare them directly.
+      // Constants don't print their bit widths by default, and the query parser
+      // wants at least one side to have an explicit width.
+      if (const auto *beforeConstant =
+              dyn_cast<klee::ConstantExpr>(beforeSymValue)) {
+        if (const auto *afterConstant =
+                dyn_cast<klee::ConstantExpr>(afterSymValue)) {
+          if (beforeConstant->getAPValue() == afterConstant->getAPValue())
+            ++eqValues;
+          else
+            ++neValues;
+          continue;
+        }
+      }
+
       // This is conceptually the expression we want to check...
       ref<Expr> expr = builder->Eq(beforeSymValue, afterSymValue);
       // ...except any arrays point to separate instance at the moment.
