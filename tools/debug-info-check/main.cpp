@@ -151,11 +151,9 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
     if (debugLoc)
       range.startLine = debugLoc.getLine();
   } else if (const auto *producerArgument = dyn_cast<Argument>(producer)) {
-    const auto *function = producerArgument->getParent();
-    assert(function && "Argument without a function");
-    const auto *subprogram = function->getSubprogram();
-    if (subprogram)
-      range.startLine = subprogram->getLine();
+    // Arguments may be spread over multiple lines, so use the declaration to
+    // get the most precise line info.
+    range.startLine = variable.declLine;
   }
   if (!range.startLine && !liveValueRanges.size()) {
     // If there are no other ranges so far, then assume the live range
@@ -167,6 +165,8 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
     outs() << ": missing line info\n";
     return false;
   }
+  assert(range.startLine >= variable.declLine &&
+         "Live range starts before declaration");
 
   // TODO: Terminate previous range
   range.producer = producer;
