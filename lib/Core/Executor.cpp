@@ -1478,9 +1478,13 @@ void Executor::printTraceAfterExecution(ExecutionState &state,
   llvm::raw_ostream *stream = &debugLogBuffer;
 
   // TODO: Add more specialised logging for memory ops etc.
-  const Cell &dest = getDestCell(state, ki);
-  if (dest.value) {
-    (*stream) << "  dest = " << dest.value << '\n';
+
+  // Calls don't have an accessible output value until they return
+  if (opcode != Instruction::Call && opcode != Instruction::Invoke) {
+    const Cell &dest = getDestCell(state, ki);
+    if (dest.value) {
+      (*stream) << "  dest = " << dest.value << '\n';
+    }
   }
 
   debugLogBuffer.flush();
