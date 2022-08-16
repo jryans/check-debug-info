@@ -329,6 +329,11 @@ int main(int argc, char **argv) {
 
   bool summary = true;
 
+  outs() << "Checking " << beforeFile << " and " << afterFile
+         << " for debug info consistency…\n\n";
+
+  outs() << "## Modules\n\n";
+
   {
     // This is a fairly silly check, since *.ll and *.bc files can only contain
     // 1 module. While KLEE does support loading archives (*.a) as well, we
@@ -344,8 +349,12 @@ int main(int argc, char **argv) {
     klee_error("This tool does not support programs with multiple modules.");
   }
 
+  outs() << "\n"; // ## Modules
+
   auto &beforeModule = beforeModules[0];
   auto &afterModule = afterModules[0];
+
+  outs() << "## Functions\n\n";
 
   const auto &beforeFunctions = beforeModule->getFunctionList();
   const auto &afterFunctions = afterModule->getFunctionList();
@@ -384,6 +393,10 @@ int main(int argc, char **argv) {
     outs() << "first after function: `" << afterDefinition.getName() << "`\n";
   }
 
+  outs() << "\n"; // ## Functions
+
+  outs() << "## Variables\n\n";
+
   VariablesSet beforeVariables;
   VariablesSet afterVariables;
 
@@ -397,9 +410,12 @@ int main(int argc, char **argv) {
   summary &= gatherLiveValueRanges("Before", beforeDefinition, beforeInstrInfo,
                                    beforeVariables, beforeVariableToLVRs);
   generateRangeIDs(beforeVariables, beforeVariableToLVRs);
+  KLEE_DEBUG(dbgs() << "\n");
+
   summary &= gatherLiveValueRanges("After", afterDefinition, afterInstrInfo,
                                    afterVariables, afterVariableToLVRs);
   generateRangeIDs(afterVariables, afterVariableToLVRs);
+  KLEE_DEBUG(dbgs() << "\n");
 
   {
     bool match = beforeVariables == afterVariables;
@@ -410,6 +426,10 @@ int main(int argc, char **argv) {
     auto mismatched = set_difference(beforeVariables, afterVariables);
     outs() << mismatched.size() << " mismatched\n";
   }
+
+  outs() << "\n"; // ## Variables
+
+  outs() << "## Live value ranges\n\n";
 
   VariablesAndLVRs beforeFlattenedRanges;
   for (const auto &pair : beforeVariableToLVRs) {
@@ -465,11 +485,14 @@ int main(int argc, char **argv) {
     }
   }
 
+  outs() << "\n"; // ## Live value ranges
+
   if (!summary) {
-    outs() << "\n";
     outs() << "🔔 Some range checks failed, skipping value checks\n";
     return EXIT_FAILURE;
   }
+
+  outs() << "## Symbolic values\n\n";
 
   // TODO: Move this closer to actual JIT usage...
   InitializeNativeTarget();
@@ -625,7 +648,8 @@ int main(int argc, char **argv) {
     outs() << neValues << " mismatched symbolic values\n";
   }
 
-  outs() << "\n";
+  outs() << "\n"; // ## Symbolic values
+
   if (summary) {
     outs() << "🎉 All consistency checks passed\n";
   } else {
