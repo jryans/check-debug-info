@@ -18,10 +18,16 @@ class Expr;
 
 namespace llvm {
 class DbgVariableIntrinsic;
+class DILocalVariable;
 class Value;
 } // namespace llvm
 
 struct Variable {
+  const llvm::DILocalVariable *diVariable;
+
+  // The following are extracted from `diVariable` for easier access because
+  // they are frequently used.
+
   llvm::StringRef name;
   unsigned int declLine;
 
@@ -35,6 +41,8 @@ struct Variable {
 };
 
 struct LiveValueRange {
+  // TODO: Pointer to the associated `Variable`...?
+
   unsigned int startLine;
   unsigned int endLine = UINT32_MAX;
   // Range IDs are generated from `asmLine` relative ordering to ease comparison
@@ -60,6 +68,8 @@ struct LiveValueRange {
     return std::tie(startLine, endLine, id) <
            std::tie(other.startLine, other.endLine, other.id);
   }
+
+  bool isValueConsistent(const Variable &var, const llvm::Value *other) const;
 };
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,

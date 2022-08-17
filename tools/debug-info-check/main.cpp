@@ -140,7 +140,7 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
       }
       const auto &lastRange = std::prev(rangesInBlock.end());
       KLEE_DEBUG(dbgs() << "  Last range for phi edge: " << *lastRange << "\n");
-      if (lastRange->producer != &value) {
+      if (!lastRange->isValueConsistent(variable, &value)) {
         KLEE_DEBUG(dbgs() << "  Phi edge value mismatch\n"
                           << "    " << *lastRange->producer << "\n"
                           << "    " << value << "\n");
@@ -211,7 +211,8 @@ bool gatherLiveValueRanges(const StringRef moduleKind,
 
   const DILocalVariable *diVariable = varIntrinsic->getVariable();
   assert(diVariable && "Variable intrinsic without a variable");
-  Variable variable = {diVariable->getName(), diVariable->getLine()};
+  Variable variable = {diVariable, diVariable->getName(),
+                       diVariable->getLine()};
   KLEE_DEBUG(dbgs() << moduleKind << " variable `" << variable.name << "` ");
   KLEE_DEBUG(dbgs() << "declared on line " << variable.declLine << "\n");
   variables.insert(variable);

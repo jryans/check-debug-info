@@ -1,6 +1,7 @@
 add_executable(debug-info-check
   main.cpp
   ValuesCollector.cpp
+  Variable.cpp
 )
 
 set(KLEE_LIBS
