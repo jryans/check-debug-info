@@ -122,6 +122,11 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
     for (const auto &phiEdge : phiNode->incoming_values()) {
       const Value &value = *phiEdge;
       const BasicBlock *block = phiNode->getIncomingBlock(phiEdge);
+      KLEE_DEBUG(dbgs() << "  Checking phi edge [ ";
+                 if (value.hasName()) dbgs() << "%" << value.getName();
+                 else dbgs() << value; dbgs() << ", ";
+                 if (block->hasName()) dbgs() << "%" << block->getName();
+                 else dbgs() << block; dbgs() << " ]\n");
       assert(block && "Phi edge without a basic block");
       const auto rangesInBlock =
           make_filter_range(liveValueRanges, [&](const LiveValueRange &range) {
@@ -129,11 +134,16 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
           });
       // Check whether there's at least one previous range
       if (rangesInBlock.end() == rangesInBlock.begin()) {
+        KLEE_DEBUG(dbgs() << "  No previous ranges found for phi edge\n");
         match = false;
         break;
       }
       const auto &lastRange = std::prev(rangesInBlock.end());
+      KLEE_DEBUG(dbgs() << "  Last range for phi edge: " << *lastRange << "\n");
       if (lastRange->producer != &value) {
+        KLEE_DEBUG(dbgs() << "  Phi edge value mismatch\n"
+                          << "    " << *lastRange->producer << "\n"
+                          << "    " << value << "\n");
         match = false;
         break;
       }
