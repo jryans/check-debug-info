@@ -499,8 +499,8 @@ int main(int argc, char **argv) {
   outs() << "\n"; // ## Live value ranges
 
   if (!summary) {
-    outs() << "🔔 Some range checks failed, skipping value checks\n";
-    return EXIT_FAILURE;
+    outs() << "🔔 Some range checks failed, "
+           << "value checks may be nonsensical…\n\n";
   }
 
   outs() << "## Symbolic values\n\n";
