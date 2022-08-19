@@ -224,10 +224,10 @@ static bool EvaluateInputAST(const char *Filename,
 
       assert("FIXME: Support counterexample query commands!");
       if (QC->Values.empty() && QC->Objects.empty()) {
-        bool result;
-        if (S->mustBeTrue(Query(ConstraintSet(QC->Constraints), QC->Query),
-                          result)) {
-          llvm::outs() << (result ? "VALID" : "INVALID");
+        Solver::Validity result;
+        if (S->evaluate(Query(ConstraintSet(QC->Constraints), QC->Query),
+                        result)) {
+          llvm::outs() << Solver::validity_to_str(result);
         } else {
           llvm::outs() << "FAIL (reason: "
                     << SolverImpl::getOperationStatusString(S->impl->getOperationStatusCode())
