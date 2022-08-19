@@ -1455,6 +1455,7 @@ void Executor::printTraceBeforeExecution(ExecutionState &state,
 
   debugLogBuffer.flush();
   (*debugExecTraceFile) << debugLogBuffer.str();
+  debugExecTraceFile->flush();
   debugBufferString = "";
 }
 
@@ -1489,6 +1490,7 @@ void Executor::printTraceAfterExecution(ExecutionState &state,
 
   debugLogBuffer.flush();
   (*debugExecTraceFile) << debugLogBuffer.str();
+  debugExecTraceFile->flush();
   debugBufferString = "";
 }
 
