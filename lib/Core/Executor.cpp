@@ -893,6 +893,10 @@ void Executor::branch(ExecutionState &state,
     unsigned next = theRNG.getInt32() % N;
     for (unsigned i=0; i<N; ++i) {
       if (i == next) {
+        if (DebugExecutionTrace)
+          *debugExecTraceFile << "Unable to fork (reason "
+                              << std::to_string(static_cast<uint8_t>(reason))
+                              << "), branch " << i << " picked at random!\n";
         result.push_back(&state);
       } else {
         result.push_back(nullptr);
@@ -1069,9 +1073,17 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
       if (!branchingPermitted(current)) {
         TimerStatIncrementer timer(stats::forkTime);
         if (theRNG.getBool()) {
+          if (DebugExecutionTrace)
+            *debugExecTraceFile << "Unable to fork (reason "
+                                << std::to_string(static_cast<uint8_t>(reason))
+                                << "), true branch picked at random!\n";
           addConstraint(current, condition);
           res = Solver::True;        
         } else {
+          if (DebugExecutionTrace)
+            *debugExecTraceFile << "Unable to fork (reason "
+                                << std::to_string(static_cast<uint8_t>(reason))
+                                << "), false branch picked at random!\n";
           addConstraint(current, Expr::createIsZero(condition));
           res = Solver::False;
         }
