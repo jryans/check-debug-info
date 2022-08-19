@@ -1143,6 +1143,11 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
     falseState = trueState->branch();
     addedStates.push_back(falseState);
 
+    if (DebugExecutionTrace)
+      *debugExecTraceFile << "Forking (reason "
+                          << std::to_string(static_cast<uint8_t>(reason))
+                          << "), state " << falseState->id << " created\n";
+
     if (it != seedMap.end()) {
       std::vector<SeedInfo> seeds = it->second;
       it->second.clear();
