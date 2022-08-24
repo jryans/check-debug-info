@@ -29,8 +29,10 @@ std::string printInstruction(const Instruction &instruction) {
   // Inline debug location
   const auto debugLoc = instruction.getDebugLoc();
   if (debugLoc) {
-    out << ", l" << debugLoc.getLine() << " c" << debugLoc.getCol();
-    out.flush();
+    if (debugLoc.getLine()) {
+      out << ", l" << debugLoc.getLine() << " c" << debugLoc.getCol();
+      out.flush();
+    }
     std::regex dbgAttachment(", !dbg ![0-9]+");
     str = std::regex_replace(str, dbgAttachment, "");
   }
@@ -147,9 +149,8 @@ std::string printModule(const Module &module) {
       std::string locInline;
       raw_string_ostream locInlineOut(locInline);
       auto line = location->getLine();
-      locInlineOut << ", l" << line;
       if (line)
-        locInlineOut << " c" << location->getColumn();
+        locInlineOut << ", l" << line << " c" << location->getColumn();
       locInlineOut.flush();
       str.replace(match.position(), match.length(), locInline);
     }
