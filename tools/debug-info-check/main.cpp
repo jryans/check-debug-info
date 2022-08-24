@@ -171,7 +171,7 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
     range.startLine = variable.declLine;
   }
   if (!range.startLine) {
-    outs() << "🐣 " << producerKind << " `" << variable.name << "`";
+    outs() << "❌ " << producerKind << " `" << variable.name << "`";
     outs() << ": missing line info\n";
     return false;
   }
@@ -218,7 +218,7 @@ bool gatherLiveValueRanges(const StringRef moduleKind,
   variables.insert(variable);
 
   if (varIntrinsic->isUndef()) {
-    outs() << "🐣 " << moduleKind << " variable intrinsic with undef input, ";
+    outs() << "❌ " << moduleKind << " variable intrinsic with undef input, ";
     outs() << "asm line " << instrInfo.getInfo(*varIntrinsic).assemblyLine
            << "\n";
     outs() << printInstruction(*varIntrinsic) << "\n";
@@ -351,7 +351,7 @@ int main(int argc, char **argv) {
     // don't plan to support that case over here for now.
     bool match = beforeModules.size() == afterModules.size();
     summary &= match;
-    outs() << (match ? "✅ " : "🐣 ");
+    outs() << (match ? "✅ " : "❌ ");
     outs() << beforeModules.size() << " before module(s), ";
     outs() << afterModules.size() << " after module(s)\n";
   }
@@ -378,7 +378,7 @@ int main(int argc, char **argv) {
   {
     bool match = beforeDefinitionCount == afterDefinitionCount;
     summary &= match;
-    outs() << (match ? "✅ " : "🐣 ");
+    outs() << (match ? "✅ " : "❌ ");
     outs() << beforeDefinitionCount << " before defined functions(s), ";
     outs() << afterDefinitionCount << " after defined functions(s)\n";
   }
@@ -399,7 +399,7 @@ int main(int argc, char **argv) {
   {
     bool match = beforeDefinition.getName() == afterDefinition.getName();
     summary &= match;
-    outs() << (match ? "✅ " : "🐣 ");
+    outs() << (match ? "✅ " : "❌ ");
     outs() << "First before function: `" << beforeDefinition.getName() << "`, ";
     outs() << "first after function: `" << afterDefinition.getName() << "`\n";
   }
@@ -431,7 +431,7 @@ int main(int argc, char **argv) {
   {
     bool match = beforeVariables == afterVariables;
     summary &= match;
-    outs() << (match ? "✅ " : "🐣 ");
+    outs() << (match ? "✅ " : "❌ ");
     outs() << beforeVariables.size() << " before variables found, ";
     outs() << afterVariables.size() << " after variables found, ";
     auto mismatched = set_difference(beforeVariables, afterVariables);
@@ -478,19 +478,19 @@ int main(int argc, char **argv) {
         mismatchedBeforeRanges.empty() && mismatchedAfterRanges.empty();
     summary &= match;
 
-    outs() << (match ? "✅ " : "🐣 ");
+    outs() << (match ? "✅ " : "❌ ");
     outs() << beforeFlattenedRanges.size() << " before LVRs found, ";
     outs() << afterFlattenedRanges.size() << " after LVRs found, ";
     outs() << mismatchedBeforeRanges.size() + mismatchedAfterRanges.size()
            << " mismatched\n";
 
     for (const auto &varRange : mismatchedBeforeRanges) {
-      outs() << "🐣 Mismatched before `" << varRange.first.name << "` ";
+      outs() << "❌ Mismatched before `" << varRange.first.name << "` ";
       outs() << "range " << varRange.second << " ";
       outs() << "from " << printValue(*varRange.second.producer) << "\n";
     }
     for (const auto &varRange : mismatchedAfterRanges) {
-      outs() << "🐣 Mismatched after `" << varRange.first.name << "` ";
+      outs() << "❌ Mismatched after `" << varRange.first.name << "` ";
       outs() << "range " << varRange.second << " ";
       outs() << "from " << printValue(*varRange.second.producer) << "\n";
     }
@@ -550,12 +550,12 @@ int main(int argc, char **argv) {
       const auto &beforeSymValue = beforeRange.producedSymbolicValue;
       const auto &afterSymValue = afterRange.producedSymbolicValue;
       if (!beforeSymValue) {
-        outs() << "🐣 Before `" << variable.name << "` ";
+        outs() << "❌ Before `" << variable.name << "` ";
         outs() << "range " << beforeRange << " has no symbolic value ";
         outs() << "from " << printValue(*beforeRange.producer) << "\n";
       }
       if (!afterSymValue) {
-        outs() << "🐣 After `" << variable.name << "` ";
+        outs() << "❌ After `" << variable.name << "` ";
         outs() << "range " << afterRange << " has no symbolic value ";
         outs() << "from " << printValue(*afterRange.producer) << "\n";
       }
@@ -654,7 +654,7 @@ int main(int argc, char **argv) {
     bool match = !neValues;
     summary &= match;
 
-    outs() << (match ? "✅ " : "🐣 ");
+    outs() << (match ? "✅ " : "❌ ");
     outs() << eqValues << " matching symbolic values, ";
     outs() << neValues << " mismatched symbolic values\n";
   }
@@ -664,7 +664,7 @@ int main(int argc, char **argv) {
   if (summary) {
     outs() << "🎉 All consistency checks passed\n";
   } else {
-    outs() << "🔔 Some consistency checks failed\n";
+    outs() << "❌ Some consistency checks failed\n";
   }
   return summary ? EXIT_SUCCESS : EXIT_FAILURE;
 }
