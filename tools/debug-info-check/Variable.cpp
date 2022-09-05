@@ -8,8 +8,8 @@
 
 using namespace llvm;
 
-bool LiveValueRange::isValueConsistent(const Variable &var,
-                                       const Value *other) const {
+bool Assignment::isValueConsistent(const Variable &var,
+                                   const Value *other) const {
   if (producer == other)
     return true;
 

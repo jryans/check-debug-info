@@ -17,6 +17,6 @@ class StringRef;
 std::unique_ptr<klee::Interpreter>
 collectValues(llvm::StringRef runtimeDir, std::unique_ptr<llvm::Module> module,
               llvm::StringRef functionName, llvm::StringRef outputDir,
-              VariablesAndLVRs &varsAndLVRs);
+              VAs &varsAssignments);
 
 #endif

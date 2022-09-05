@@ -40,12 +40,11 @@ struct Variable {
   }
 };
 
-struct LiveValueRange {
+struct Assignment {
   // TODO: Pointer to the associated `Variable`...?
 
   unsigned int startLine;
-  unsigned int endLine = UINT32_MAX;
-  // Range IDs are generated from `asmLine` relative ordering to ease comparison
+  // IDs are generated from `asmLine` relative ordering to ease comparison
   unsigned int id;
 
   // Not checked during comparison
@@ -53,44 +52,37 @@ struct LiveValueRange {
   const llvm::Value *producer;
   const llvm::DbgVariableIntrinsic *varIntrinsic;
   // Producer or variable intrinsic assembly line
-  // Used for relative ordering of ranges with the same start line
+  // Used for relative ordering with the same start line
   unsigned int asmLine;
   // This cannot be `const` if we want `std::swap` to work...
   // TODO: Work out if this is a bug in `ref`
   klee::ref<klee::Expr> producedSymbolicValue;
 
-  bool operator==(const LiveValueRange &other) const {
-    return std::tie(startLine, endLine, id) ==
-           std::tie(other.startLine, other.endLine, other.id);
+  bool operator==(const Assignment &other) const {
+    return std::tie(startLine, id) == std::tie(other.startLine, other.id);
   }
 
-  bool operator<(const LiveValueRange &other) const {
-    return std::tie(startLine, endLine, id) <
-           std::tie(other.startLine, other.endLine, other.id);
+  bool operator<(const Assignment &other) const {
+    return std::tie(startLine, id) < std::tie(other.startLine, other.id);
   }
 
   bool isValueConsistent(const Variable &var, const llvm::Value *other) const;
 };
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
-                                     const LiveValueRange &range) {
-  out << range.id << ": ";
-  out << "[" << range.startLine << ", ";
-  if (range.endLine == UINT32_MAX)
-    out << "∞";
-  else
-    out << range.endLine;
-  out << ")";
+                                     const Assignment &assignment) {
+  out << assignment.id << ": ";
+  out << "src line " << assignment.startLine;
   return out;
 }
 
 using VariablesSet = llvm::SmallSet<Variable, 8>;
 
-using LVRs = llvm::SmallVector<LiveValueRange>;
+using Assignments = llvm::SmallVector<Assignment>;
 // There might be a good match for this in LLVM's data structures, but wasn't
 // quite sure...
-using VariableToLVRs = std::map<Variable, LVRs>;
-using VariableAndLVR = std::pair<Variable, LiveValueRange>;
-using VariablesAndLVRs = llvm::SmallVector<VariableAndLVR>;
+using VToAs = std::map<Variable, Assignments>;
+using VA = std::pair<Variable, Assignment>;
+using VAs = llvm::SmallVector<VA>;
 
 #endif

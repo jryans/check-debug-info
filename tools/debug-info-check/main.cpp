@@ -82,10 +82,10 @@ extern cl::opt<bool> DebugExecutionTrace;
 extern cl::opt<bool> OnlyUncoveredBranchTargets;
 } // namespace klee
 
-bool addLiveValueRange(const InstructionInfoTable &instrInfo,
-                       const DbgVariableIntrinsic *varIntrinsic,
-                       const Variable &variable, const StringRef producerKind,
-                       const Value *producer, VariableToLVRs &variableToLVRs) {
+bool addAssignment(const InstructionInfoTable &instrInfo,
+                   const DbgVariableIntrinsic *varIntrinsic,
+                   const Variable &variable, const StringRef producerKind,
+                   const Value *producer, VToAs &varToAs) {
   if (!producer)
     return true;
   if (!isa<Instruction>(*producer) && !isa<Argument>(*producer) &&
@@ -104,19 +104,19 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
     KLEE_DEBUG(dbgs() << "value " << producerInt->getValue() << "\n");
   }
 
-  auto &liveValueRanges = variableToLVRs[variable];
+  auto &assignments = varToAs[variable];
 
-  // Check if this redundantly specifies the previous range
-  if (liveValueRanges.size()) {
-    const auto &lastRange = liveValueRanges.back();
-    if (lastRange.producer == producer) {
-      KLEE_DEBUG(dbgs() << "  Value is same as last range, skipping\n");
+  // Check if this redundantly specifies the previous assignment
+  if (assignments.size()) {
+    const auto &lastAssignment = assignments.back();
+    if (lastAssignment.producer == producer) {
+      KLEE_DEBUG(dbgs() << "  Value is same as last assignment, skipping\n");
       return true;
     }
   }
 
-  // For phi nodes, check if they redundantly match the previous ranges for all
-  // incoming edges.
+  // For phi nodes, check if they redundantly match the previous assignments for
+  // all incoming edges.
   if (const auto *phiNode = dyn_cast<PHINode>(producer)) {
     bool match = true;
     for (const auto &phiEdge : phiNode->incoming_values()) {
@@ -128,77 +128,77 @@ bool addLiveValueRange(const InstructionInfoTable &instrInfo,
                  if (block->hasName()) dbgs() << "%" << block->getName();
                  else dbgs() << block; dbgs() << " ]\n");
       assert(block && "Phi edge without a basic block");
-      const auto rangesInBlock =
-          make_filter_range(liveValueRanges, [&](const LiveValueRange &range) {
-            return range.varIntrinsic->getParent() == block;
+      const auto assignmentsInBlock =
+          make_filter_range(assignments, [&](const Assignment &assn) {
+            return assn.varIntrinsic->getParent() == block;
           });
-      // Check whether there's at least one previous range
-      if (rangesInBlock.end() == rangesInBlock.begin()) {
-        KLEE_DEBUG(dbgs() << "  No previous ranges found for phi edge\n");
+      // Check whether there's at least one previous assignment
+      if (assignmentsInBlock.end() == assignmentsInBlock.begin()) {
+        KLEE_DEBUG(dbgs() << "  No previous assignments found for phi edge\n");
         match = false;
         break;
       }
-      const auto &lastRange = std::prev(rangesInBlock.end());
-      KLEE_DEBUG(dbgs() << "  Last range for phi edge: " << *lastRange << "\n");
-      if (!lastRange->isValueConsistent(variable, &value)) {
+      const auto &lastAssignment = std::prev(assignmentsInBlock.end());
+      KLEE_DEBUG(dbgs() << "  Last assignment for phi edge: " << *lastAssignment
+                        << "\n");
+      if (!lastAssignment->isValueConsistent(variable, &value)) {
         KLEE_DEBUG(dbgs() << "  Phi edge value mismatch\n"
-                          << "    " << *lastRange->producer << "\n"
+                          << "    " << *lastAssignment->producer << "\n"
                           << "    " << value << "\n");
         match = false;
         break;
       }
     }
     if (match) {
-      KLEE_DEBUG(dbgs() << "  All phi values same as last ranges, skipping\n");
+      KLEE_DEBUG(dbgs() << "  All phi values same as last assignments, "
+                        << "skipping\n");
       return true;
     }
   }
 
-  LiveValueRange range = {};
+  Assignment assignment = {};
 
   if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
     const auto debugLoc = producerInstruction->getDebugLoc();
     if (debugLoc)
-      range.startLine = debugLoc.getLine();
+      assignment.startLine = debugLoc.getLine();
   } else if (const auto *producerArgument = dyn_cast<Argument>(producer)) {
     // Arguments may be spread over multiple lines, so use the declaration to
     // get the most precise line info.
-    range.startLine = variable.declLine;
+    assignment.startLine = variable.declLine;
   }
-  if (!range.startLine && !liveValueRanges.size()) {
-    // If there are no other ranges so far, then assume the live range
-    // starts at declaration.
-    range.startLine = variable.declLine;
+  if (!assignment.startLine && !assignments.size()) {
+    // If there are no other assignments so far, then assume this one starts at
+    // declaration.
+    assignment.startLine = variable.declLine;
   }
-  if (!range.startLine) {
+  if (!assignment.startLine) {
     outs() << "❌ " << producerKind << " `" << variable.name << "`";
     outs() << ": missing line info\n";
     return false;
   }
-  assert(range.startLine >= variable.declLine &&
-         "Live range starts before declaration");
+  assert(assignment.startLine >= variable.declLine &&
+         "Assignment starts before declaration");
 
-  // TODO: Terminate previous range
-  range.producer = producer;
-  range.varIntrinsic = varIntrinsic;
+  assignment.producer = producer;
+  assignment.varIntrinsic = varIntrinsic;
   // TODO: Should `producer` and `varIntrinsic` be merged somehow...?
   if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
-    range.asmLine = instrInfo.getInfo(*producerInstruction).assemblyLine;
+    assignment.asmLine = instrInfo.getInfo(*producerInstruction).assemblyLine;
   } else {
-    range.asmLine = instrInfo.getInfo(*varIntrinsic).assemblyLine;
+    assignment.asmLine = instrInfo.getInfo(*varIntrinsic).assemblyLine;
   }
 
-  KLEE_DEBUG(dbgs() << "  Added live value range starting at "
-                    << range.startLine << "\n");
-  liveValueRanges.push_back(std::move(range));
+  KLEE_DEBUG(dbgs() << "  Added assignment starting at " << assignment.startLine
+                    << "\n");
+  assignments.push_back(std::move(assignment));
   return true;
 }
 
-bool gatherLiveValueRanges(const StringRef moduleKind,
-                           const Instruction &instruction,
-                           const InstructionInfoTable &instrInfo,
-                           VariablesSet &variables,
-                           VariableToLVRs &variableToLVRs) {
+bool gatherAssignments(const StringRef moduleKind,
+                       const Instruction &instruction,
+                       const InstructionInfoTable &instrInfo,
+                       VariablesSet &variables, VToAs &varToAs) {
   bool summary = true;
 
   const auto *varIntrinsic = dyn_cast<DbgVariableIntrinsic>(&instruction);
@@ -234,9 +234,8 @@ bool gatherLiveValueRanges(const StringRef moduleKind,
       return summary;
     for (const auto *addressUse : address->users()) {
       if (const auto *storeInstruction = dyn_cast<StoreInst>(addressUse)) {
-        summary &=
-            addLiveValueRange(instrInfo, declareIntrinsic, variable, "Store to",
-                              storeInstruction, variableToLVRs);
+        summary &= addAssignment(instrInfo, declareIntrinsic, variable,
+                                 "Store to", storeInstruction, varToAs);
       }
     }
   } else if (const auto *valueIntrinsic =
@@ -245,9 +244,8 @@ bool gatherLiveValueRanges(const StringRef moduleKind,
     // TODO: Handle DIArgList case
     assert(!valueIntrinsic->hasArgList() && "Unexpected DIArgList");
     const auto *producer = valueIntrinsic->getValue();
-    summary &=
-        addLiveValueRange(instrInfo, valueIntrinsic, variable,
-                          "Value produced for", producer, variableToLVRs);
+    summary &= addAssignment(instrInfo, valueIntrinsic, variable,
+                             "Value produced for", producer, varToAs);
   } else {
     llvm_unreachable("Unexpected dbg intrinsic");
   }
@@ -255,10 +253,9 @@ bool gatherLiveValueRanges(const StringRef moduleKind,
   return summary;
 }
 
-bool gatherLiveValueRanges(const StringRef moduleKind, const Function &function,
-                           const InstructionInfoTable &instrInfo,
-                           VariablesSet &variables,
-                           VariableToLVRs &variableToLVRs) {
+bool gatherAssignments(const StringRef moduleKind, const Function &function,
+                       const InstructionInfoTable &instrInfo,
+                       VariablesSet &variables, VToAs &varToAs) {
   bool summary = true;
 
   // Some intrinsics (e.g. using a phi node) need to be processed at the end
@@ -267,33 +264,34 @@ bool gatherLiveValueRanges(const StringRef moduleKind, const Function &function,
   for (const auto &instruction : instructions(function)) {
     if (const auto *valueIntrinsic = dyn_cast<DbgValueInst>(&instruction)) {
       if (const auto *phiNode = dyn_cast<PHINode>(valueIntrinsic->getValue())) {
-        // Processing phi nodes requires examining other ranges throughout the
-        // program, so stash these for now and revisit them again at the end.
+        // Processing phi nodes requires examining other assignments throughout
+        // the program, so stash these for now and revisit them again at the
+        // end.
         postProcessIntrinsics.push_back(valueIntrinsic);
         continue;
       }
     }
-    summary &= gatherLiveValueRanges(moduleKind, instruction, instrInfo,
-                                     variables, variableToLVRs);
+    summary &= gatherAssignments(moduleKind, instruction, instrInfo, variables,
+                                 varToAs);
   }
 
   for (const auto &instruction : postProcessIntrinsics) {
-    summary &= gatherLiveValueRanges(moduleKind, *instruction, instrInfo,
-                                     variables, variableToLVRs);
+    summary &= gatherAssignments(moduleKind, *instruction, instrInfo, variables,
+                                 varToAs);
   }
 
   return summary;
 }
 
-void generateRangeIDs(VariablesSet &variables, VariableToLVRs &variableToLVRs) {
+void generateAssignmentIDs(VariablesSet &variables, VToAs &varToAs) {
   for (const auto &variable : variables) {
-    auto &ranges = variableToLVRs[variable];
-    sort(ranges, [](const LiveValueRange &left, const LiveValueRange &right) {
-      return std::tie(left.startLine, left.endLine, left.asmLine) <
-             std::tie(right.startLine, right.endLine, right.asmLine);
+    auto &assignments = varToAs[variable];
+    sort(assignments, [](const Assignment &left, const Assignment &right) {
+      return std::tie(left.startLine, left.asmLine) <
+             std::tie(right.startLine, right.asmLine);
     });
-    for (size_t i = 0, e = ranges.size(); i < e; ++i) {
-      ranges[i].id = i;
+    for (size_t i = 0, e = assignments.size(); i < e; ++i) {
+      assignments[i].id = i;
     }
   }
 }
@@ -411,21 +409,21 @@ int main(int argc, char **argv) {
   VariablesSet beforeVariables;
   VariablesSet afterVariables;
 
-  VariableToLVRs beforeVariableToLVRs;
-  VariableToLVRs afterVariableToLVRs;
+  VToAs beforeVToAs;
+  VToAs afterVToAs;
 
   // Borrow KLEE's instruction info analysis for now...
   InstructionInfoTable beforeInstrInfo(*beforeModule);
   InstructionInfoTable afterInstrInfo(*afterModule);
 
-  summary &= gatherLiveValueRanges("Before", beforeDefinition, beforeInstrInfo,
-                                   beforeVariables, beforeVariableToLVRs);
-  generateRangeIDs(beforeVariables, beforeVariableToLVRs);
+  summary &= gatherAssignments("Before", beforeDefinition, beforeInstrInfo,
+                               beforeVariables, beforeVToAs);
+  generateAssignmentIDs(beforeVariables, beforeVToAs);
   KLEE_DEBUG(dbgs() << "\n");
 
-  summary &= gatherLiveValueRanges("After", afterDefinition, afterInstrInfo,
-                                   afterVariables, afterVariableToLVRs);
-  generateRangeIDs(afterVariables, afterVariableToLVRs);
+  summary &= gatherAssignments("After", afterDefinition, afterInstrInfo,
+                               afterVariables, afterVToAs);
+  generateAssignmentIDs(afterVariables, afterVToAs);
   KLEE_DEBUG(dbgs() << "\n");
 
   {
@@ -440,66 +438,65 @@ int main(int argc, char **argv) {
 
   outs() << "\n"; // ## Variables
 
-  outs() << "## Live value ranges\n\n";
+  outs() << "## Assignments\n\n";
 
-  VariablesAndLVRs beforeFlattenedRanges;
-  for (const auto &pair : beforeVariableToLVRs) {
-    const auto &variable = pair.first;
-    for (const auto &range : pair.second) {
-      beforeFlattenedRanges.push_back(std::make_pair(variable, range));
+  VAs beforeFlatVAs;
+  for (const auto &varAssignments : beforeVToAs) {
+    const auto &variable = varAssignments.first;
+    for (const auto &assn : varAssignments.second) {
+      beforeFlatVAs.push_back(std::make_pair(variable, assn));
     }
   }
-  sort(beforeFlattenedRanges);
+  sort(beforeFlatVAs);
 
-  VariablesAndLVRs afterFlattenedRanges;
-  for (const auto &pair : afterVariableToLVRs) {
-    const auto &variable = pair.first;
-    for (const auto &range : pair.second) {
-      afterFlattenedRanges.push_back(std::make_pair(variable, range));
+  VAs afterFlatVAs;
+  for (const auto &varAssignments : afterVToAs) {
+    const auto &variable = varAssignments.first;
+    for (const auto &assn : varAssignments.second) {
+      afterFlatVAs.push_back(std::make_pair(variable, assn));
     }
   }
-  sort(afterFlattenedRanges);
+  sort(afterFlatVAs);
 
   {
     // TODO: Use pointers instead of copying...
-    VariablesAndLVRs mismatchedBeforeRanges;
-    VariablesAndLVRs mismatchedAfterRanges;
+    VAs mismatchedBeforeVAs;
+    VAs mismatchedAfterVAs;
     // TODO: Be less lazy here, write a loop like a normal person...
     std::set_difference(
-        beforeFlattenedRanges.begin(), beforeFlattenedRanges.end(),
-        afterFlattenedRanges.begin(), afterFlattenedRanges.end(),
-        std::inserter(mismatchedBeforeRanges, mismatchedBeforeRanges.begin()));
+        beforeFlatVAs.begin(), beforeFlatVAs.end(), afterFlatVAs.begin(),
+        afterFlatVAs.end(),
+        std::inserter(mismatchedBeforeVAs, mismatchedBeforeVAs.begin()));
     std::set_difference(
-        afterFlattenedRanges.begin(), afterFlattenedRanges.end(),
-        beforeFlattenedRanges.begin(), beforeFlattenedRanges.end(),
-        std::inserter(mismatchedAfterRanges, mismatchedAfterRanges.begin()));
+        afterFlatVAs.begin(), afterFlatVAs.end(), beforeFlatVAs.begin(),
+        beforeFlatVAs.end(),
+        std::inserter(mismatchedAfterVAs, mismatchedAfterVAs.begin()));
 
-    bool match =
-        mismatchedBeforeRanges.empty() && mismatchedAfterRanges.empty();
+    bool match = mismatchedBeforeVAs.empty() && mismatchedAfterVAs.empty();
     summary &= match;
 
     outs() << (match ? "✅ " : "❌ ");
-    outs() << beforeFlattenedRanges.size() << " before LVRs found, ";
-    outs() << afterFlattenedRanges.size() << " after LVRs found, ";
-    outs() << mismatchedBeforeRanges.size() + mismatchedAfterRanges.size()
+    outs() << beforeFlatVAs.size() << " before assignments found, ";
+    outs() << afterFlatVAs.size() << " after assignments found, ";
+    outs() << mismatchedBeforeVAs.size() + mismatchedAfterVAs.size()
            << " mismatched\n";
 
-    for (const auto &varRange : mismatchedBeforeRanges) {
-      outs() << "❌ Mismatched before `" << varRange.first.name << "` ";
-      outs() << "range " << varRange.second << " ";
-      outs() << "from " << printValue(*varRange.second.producer) << "\n";
+    for (const auto &varAssn : mismatchedBeforeVAs) {
+      outs() << "❌ Mismatched before `" << varAssn.first.name << "` ";
+      outs() << "assn " << varAssn.second << " ";
+      outs() << "from " << printValue(*varAssn.second.producer) << "\n";
     }
-    for (const auto &varRange : mismatchedAfterRanges) {
-      outs() << "❌ Mismatched after `" << varRange.first.name << "` ";
-      outs() << "range " << varRange.second << " ";
-      outs() << "from " << printValue(*varRange.second.producer) << "\n";
+    for (const auto &varAssn : mismatchedAfterVAs) {
+      outs() << "❌ Mismatched after `" << varAssn.first.name << "` ";
+      outs() << "assn " << varAssn.second << " ";
+      outs() << "from " << printValue(*varAssn.second.producer) << "\n";
     }
   }
 
-  outs() << "\n"; // ## Live value ranges
+  outs() << "\n"; // ## Assignments
 
   if (!summary) {
-    outs() << "🔔 Some range checks failed, "
+    outs() << "🔔 Some assignment checks failed, "
            << "value checks may be nonsensical…\n\n";
   }
 
@@ -516,7 +513,7 @@ int main(int argc, char **argv) {
     SmallString<128> outputDir = createOutputDir(beforeFile);
     // TODO: Inject our own automatic symbolic wrapper
     beforeInterpreter = collectValues(runtimeDir, std::move(beforeModule),
-                                      "main", outputDir, beforeFlattenedRanges);
+                                      "main", outputDir, beforeFlatVAs);
   }
 
   // Collect symbolic values for after module
@@ -525,7 +522,7 @@ int main(int argc, char **argv) {
     SmallString<128> outputDir = createOutputDir(afterFile);
     // TODO: Inject our own automatic symbolic wrapper
     afterInterpreter = collectValues(runtimeDir, std::move(afterModule), "main",
-                                     outputDir, afterFlattenedRanges);
+                                     outputDir, afterFlatVAs);
   }
 
   {
@@ -536,28 +533,27 @@ int main(int argc, char **argv) {
     Solver *solver = constructSolverChain(coreSolver, "", "", "", "");
     ExprBuilder *builder = createDefaultExprBuilder();
 
-    for (size_t i = 0, e = std::min(beforeFlattenedRanges.size(),
-                                    afterFlattenedRanges.size());
+    for (size_t i = 0, e = std::min(beforeFlatVAs.size(), afterFlatVAs.size());
          i < e; ++i) {
-      const auto &before = beforeFlattenedRanges[i];
-      const auto &after = afterFlattenedRanges[i];
+      const auto &before = beforeFlatVAs[i];
+      const auto &after = afterFlatVAs[i];
       assert(before.first == after.first && "Variables don't match");
       const Variable &variable = before.first;
-      const LiveValueRange &beforeRange = before.second;
-      const LiveValueRange &afterRange = after.second;
+      const Assignment &beforeAssn = before.second;
+      const Assignment &afterAssn = after.second;
       // This comparison does _not_ check symbolic values
-      assert(beforeRange == afterRange && "Ranges don't match");
-      const auto &beforeSymValue = beforeRange.producedSymbolicValue;
-      const auto &afterSymValue = afterRange.producedSymbolicValue;
+      assert(beforeAssn == afterAssn && "Assignments don't match");
+      const auto &beforeSymValue = beforeAssn.producedSymbolicValue;
+      const auto &afterSymValue = afterAssn.producedSymbolicValue;
       if (!beforeSymValue) {
         outs() << "❌ Before `" << variable.name << "` ";
-        outs() << "range " << beforeRange << " has no symbolic value ";
-        outs() << "from " << printValue(*beforeRange.producer) << "\n";
+        outs() << "assn " << beforeAssn << " has no symbolic value ";
+        outs() << "from " << printValue(*beforeAssn.producer) << "\n";
       }
       if (!afterSymValue) {
         outs() << "❌ After `" << variable.name << "` ";
-        outs() << "range " << afterRange << " has no symbolic value ";
-        outs() << "from " << printValue(*afterRange.producer) << "\n";
+        outs() << "assn " << afterAssn << " has no symbolic value ";
+        outs() << "from " << printValue(*afterAssn.producer) << "\n";
       }
       if (!beforeSymValue || !afterSymValue) {
         ++neValues;
@@ -566,12 +562,12 @@ int main(int argc, char **argv) {
 
       KLEE_DEBUG(dbgs() << "Checking equivalence of `" << variable.name << "` "
                         << "from\n"
-                        << "range " << beforeRange << "\n"
-                        << printValue(*beforeRange.producer) << "\n"
+                        << "assn " << beforeAssn << "\n"
+                        << printValue(*beforeAssn.producer) << "\n"
                         << beforeSymValue << "\n"
                         << "and\n"
-                        << "range " << afterRange << "\n"
-                        << printValue(*afterRange.producer) << "\n"
+                        << "assn " << afterAssn << "\n"
+                        << printValue(*afterAssn.producer) << "\n"
                         << afterSymValue << "\n");
 
       assert(beforeSymValue->getWidth() == afterSymValue->getWidth() &&

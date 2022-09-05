@@ -38,13 +38,13 @@ using namespace llvm;
 class VCHandler : public InterpreterHandler {
 private:
   StringRef outputDir;
-  VariablesAndLVRs &varsAndLVRs;
+  VAs &varsAssignments;
   std::unique_ptr<llvm::raw_fd_ostream> infoStream;
   Interpreter *interpreter;
 
 public:
-  VCHandler(StringRef outputDir, VariablesAndLVRs &varsAndLVRs)
-      : outputDir(outputDir), varsAndLVRs(varsAndLVRs),
+  VCHandler(StringRef outputDir, VAs &varsAssignments)
+      : outputDir(outputDir), varsAssignments(varsAssignments),
         infoStream(openOutputFile("info")) {}
 
   void setInterpreter(Interpreter *interp) { interpreter = interp; }
@@ -110,19 +110,20 @@ void VCHandler::recordValue(const Value *producer, ref<Expr> symbolicValue) {
   if (!symbolicValue)
     return;
 
-  // Look for ranges where this was the producer
+  // Look for assignments where this was the producer
   // TODO: Gather all producers up front first for faster filtering...?
-  const auto matchingRanges =
-      make_filter_range(varsAndLVRs, [&](VariableAndLVR &pair) {
-        const auto &range = pair.second;
+  const auto matchingAssignments =
+      make_filter_range(varsAssignments, [&](VA &pair) {
+        const auto &assignment = pair.second;
         // TODO: Re-think producer vs. intrinsic structure...?
-        return range.producer == producer || range.varIntrinsic == producer;
+        return assignment.producer == producer ||
+               assignment.varIntrinsic == producer;
       });
 
-  for (VariableAndLVR &pair : matchingRanges) {
+  for (VA &pair : matchingAssignments) {
     const auto &var = pair.first;
-    auto &range = pair.second;
-    range.producedSymbolicValue = symbolicValue;
+    auto &assignment = pair.second;
+    assignment.producedSymbolicValue = symbolicValue;
     KLEE_DEBUG(dbgs() << "Collected value for `" << var.name << "`\n");
     KLEE_DEBUG(dbgs() << printValue(*producer) << "\n");
     KLEE_DEBUG(dbgs() << symbolicValue << "\n");
@@ -132,7 +133,7 @@ void VCHandler::recordValue(const Value *producer, ref<Expr> symbolicValue) {
 std::unique_ptr<Interpreter>
 collectValues(StringRef runtimeDir, std::unique_ptr<llvm::Module> mainModule,
               StringRef functionName, StringRef outputDir,
-              VariablesAndLVRs &varsAndLVRs) {
+              VAs &varsAssignments) {
   LLVMContext &ctx = mainModule->getContext();
   const std::string &moduleTriple = mainModule->getTargetTriple();
   std::string hostTriple = llvm::sys::getDefaultTargetTriple();
@@ -179,7 +180,7 @@ collectValues(StringRef runtimeDir, std::unique_ptr<llvm::Module> mainModule,
   // TODO: Program args and environment...?
 
   Interpreter::InterpreterOptions interpreterOpts;
-  VCHandler handler(outputDir, varsAndLVRs);
+  VCHandler handler(outputDir, varsAssignments);
   std::unique_ptr<Interpreter> interpreter(
       Interpreter::create(ctx, interpreterOpts, &handler));
   assert(interpreter);
