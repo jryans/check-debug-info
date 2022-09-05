@@ -189,8 +189,8 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
     assignment.asmLine = instrInfo.getInfo(*varIntrinsic).assemblyLine;
   }
 
-  KLEE_DEBUG(dbgs() << "  Added assignment starting at " << assignment.startLine
-                    << "\n");
+  KLEE_DEBUG(dbgs() << "  Added assignment starting at src line "
+                    << assignment.startLine << "\n");
   assignments.push_back(std::move(assignment));
   return true;
 }
@@ -214,7 +214,7 @@ bool gatherAssignments(const StringRef moduleKind,
   Variable variable = {diVariable, diVariable->getName(),
                        diVariable->getLine()};
   KLEE_DEBUG(dbgs() << moduleKind << " variable `" << variable.name << "` ");
-  KLEE_DEBUG(dbgs() << "declared on line " << variable.declLine << "\n");
+  KLEE_DEBUG(dbgs() << "declared on src line " << variable.declLine << "\n");
   variables.insert(variable);
 
   if (varIntrinsic->isUndef()) {
