@@ -132,6 +132,13 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
                  else dbgs() << block; dbgs() << " ]\n");
       assert(block && "Phi edge without a basic block");
 
+      // Ignore edges that reference the same block
+      // TODO: Is this actually okay to do...?
+      if (phiNode->getParent() == block) {
+        KLEE_DEBUG(dbgs() << "  Ignoring cyclical phi edge\n");
+        continue;
+      }
+
       // Find last assignment, potentially traversing multiple predecessors
       const Assignment *lastAssignment = nullptr;
       SmallSet<const BasicBlock *, 4> blocksSeen;
