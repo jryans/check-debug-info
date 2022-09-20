@@ -20,6 +20,7 @@
 #include "klee/Support/RuntimeHandling.h"
 
 #include "llvm/ADT/SetOperations.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Argument.h"
@@ -116,11 +117,13 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
   }
 
   // For phi nodes, check if they redundantly match the previous assignments for
-  // all incoming edges.
+  // all incoming edges. This may involve traversing multiple predecessor
+  // blocks.
   if (const auto *phiNode = dyn_cast<PHINode>(producer)) {
     bool match = true;
     for (const auto &phiEdge : phiNode->incoming_values()) {
       const Value &value = *phiEdge;
+
       const BasicBlock *block = phiNode->getIncomingBlock(phiEdge);
       KLEE_DEBUG(dbgs() << "  Checking phi edge [ ";
                  if (value.hasName()) dbgs() << "%" << value.getName();
@@ -128,19 +131,37 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
                  if (block->hasName()) dbgs() << "%" << block->getName();
                  else dbgs() << block; dbgs() << " ]\n");
       assert(block && "Phi edge without a basic block");
-      const auto assignmentsInBlock =
-          make_filter_range(assignments, [&](const Assignment &assn) {
-            return assn.varIntrinsic->getParent() == block;
-          });
-      // Check whether there's at least one previous assignment
-      if (assignmentsInBlock.end() == assignmentsInBlock.begin()) {
+
+      // Find last assignment, potentially traversing multiple predecessors
+      const Assignment *lastAssignment = nullptr;
+      SmallSet<const BasicBlock *, 4> blocksSeen;
+      while (block) {
+        if (blocksSeen.count(block))
+          break;
+        blocksSeen.insert(block);
+        const auto assignmentsInBlock =
+            make_filter_range(assignments, [&](const Assignment &assn) {
+              return assn.varIntrinsic->getParent() == block;
+            });
+        // Check whether there's at least one previous assignment
+        if (assignmentsInBlock.end() != assignmentsInBlock.begin()) {
+          lastAssignment = &*std::prev(assignmentsInBlock.end());
+          break;
+        }
+        // Try the next predecessor
+        // TODO: Support multiple predecessors after the first block
+        assert(!block->hasNPredecessorsOrMore(2) &&
+               "Basic block with multiple predecessors");
+        block = block->getSinglePredecessor();
+      }
+      if (!lastAssignment) {
         KLEE_DEBUG(dbgs() << "  No previous assignments found for phi edge\n");
         match = false;
         break;
       }
-      const auto &lastAssignment = std::prev(assignmentsInBlock.end());
       KLEE_DEBUG(dbgs() << "  Last assignment for phi edge: " << *lastAssignment
                         << "\n");
+
       if (!lastAssignment->isValueConsistent(variable, &value)) {
         KLEE_DEBUG(dbgs() << "  Phi edge value mismatch\n"
                           << "    " << *lastAssignment->producer << "\n"
