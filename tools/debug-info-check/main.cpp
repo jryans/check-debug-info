@@ -574,10 +574,11 @@ int main(int argc, char **argv) {
       const Variable &variable = before.first;
       const Assignment &beforeAssn = before.second;
       const Assignment &afterAssn = after.second;
-      // This assertion does _not_ check symbolic values
-      assert(beforeAssn == afterAssn && "Assignments don't match");
-      const auto &beforeSymValue = beforeAssn.producedSymbolicValue;
-      const auto &afterSymValue = afterAssn.producedSymbolicValue;
+      // This does _not_ check symbolic values
+      if (beforeAssn != afterAssn) {
+        outs() << "🔔 Before assn " << beforeAssn << " doesn't match after assn "
+               << afterAssn << "\n";
+      }
       if (!beforeSymValue) {
         outs() << "❌ Before `" << variable.name << "` ";
         outs() << "assn " << beforeAssn << " has no symbolic value ";

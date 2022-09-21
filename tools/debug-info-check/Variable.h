@@ -62,6 +62,8 @@ struct Assignment {
     return std::tie(startLine, id) == std::tie(other.startLine, other.id);
   }
 
+  bool operator!=(const Assignment &other) const { return !(*this == other); }
+
   bool operator<(const Assignment &other) const {
     return std::tie(startLine, id) < std::tie(other.startLine, other.id);
   }
@@ -71,7 +73,7 @@ struct Assignment {
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
                                      const Assignment &assignment) {
-  out << assignment.id << ": ";
+  out << assignment.id << ", ";
   out << "src line " << assignment.startLine;
   return out;
 }
