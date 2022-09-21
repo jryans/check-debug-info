@@ -271,6 +271,11 @@ bool gatherAssignments(const StringRef moduleKind,
     // Find related instructions via the `dbg.value`'s location ops
     // TODO: Handle DIArgList case
     assert(!valueIntrinsic->hasArgList() && "Unexpected DIArgList");
+    KLEE_DEBUG(dbgs() << "@dbg.value mapping for"
+                      << " `" << variable.name << "`, ");
+    KLEE_DEBUG(dbgs() << "asm line "
+                      << instrInfo.getInfo(*valueIntrinsic).assemblyLine
+                      << "\n");
     const auto *producer = valueIntrinsic->getValue();
     summary &= addAssignment(instrInfo, valueIntrinsic, variable,
                              "Value produced for", producer, varToAs);
