@@ -232,10 +232,9 @@ bool gatherAssignments(const StringRef moduleKind,
   const auto *varIntrinsic = dyn_cast<DbgVariableIntrinsic>(&instruction);
   if (!varIntrinsic)
     return summary;
+
   assert(!isa<DbgAddrIntrinsic>(instruction) &&
          "Unexpected dbg.addr intrinsic");
-  assert(!varIntrinsic->getExpression()->getNumElements() &&
-         "Unexpected dbg intrinsic with non-empty expression");
 
   const DILocalVariable *diVariable = varIntrinsic->getVariable();
   assert(diVariable && "Variable intrinsic without a variable");
@@ -568,17 +567,19 @@ int main(int argc, char **argv) {
 
     for (size_t i = 0, e = std::min(beforeFlatVAs.size(), afterFlatVAs.size());
          i < e; ++i) {
-      const auto &before = beforeFlatVAs[i];
-      const auto &after = afterFlatVAs[i];
+      auto &before = beforeFlatVAs[i];
+      auto &after = afterFlatVAs[i];
       assert(before.first == after.first && "Variables don't match");
       const Variable &variable = before.first;
-      const Assignment &beforeAssn = before.second;
-      const Assignment &afterAssn = after.second;
+      Assignment &beforeAssn = before.second;
+      Assignment &afterAssn = after.second;
       // This does _not_ check symbolic values
       if (beforeAssn != afterAssn) {
         outs() << "🔔 Before assn " << beforeAssn << " doesn't match after assn "
                << afterAssn << "\n";
       }
+      const auto &beforeSymValue = beforeAssn.evaluate();
+      const auto &afterSymValue = afterAssn.evaluate();
       if (!beforeSymValue) {
         outs() << "❌ Before `" << variable.name << "` ";
         outs() << "assn " << beforeAssn << " has no symbolic value ";

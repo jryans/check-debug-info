@@ -1,12 +1,22 @@
 #include "Variable.h"
 
+#include "klee/ADT/Ref.h"
+#include "klee/Expr/Expr.h"
+#include "klee/Expr/ExprBuilder.h"
+#include "klee/Support/Debug.h"
+
 #include "llvm/ADT/APInt.h"
+#include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
 
+using namespace klee;
 using namespace llvm;
+
+#define DEBUG_TYPE "variable"
 
 bool Assignment::isValueConsistent(const Variable &var,
                                    const Value *other) const {
@@ -29,4 +39,112 @@ bool Assignment::isValueConsistent(const Variable &var,
   // TODO: Handle bit cast case...?
 
   return false;
+}
+
+ref<Expr> Assignment::evaluate() {
+  if (evaluatedSymbolicValue)
+    return evaluatedSymbolicValue;
+
+  // Empty expression
+  const auto *expr = varIntrinsic->getExpression();
+  if (!expr->getNumElements()) {
+    evaluatedSymbolicValue = producedSymbolicValue;
+    return evaluatedSymbolicValue;
+  }
+
+  assert(expr->isValid() && "Invalid dbg intrinsic expression");
+  // TODO: Support other intrinsics with expressions
+  assert(isa<DbgValueInst>(varIntrinsic) &&
+         "Unexpected dbg intrinsic with expression");
+
+  SmallVector<ref<Expr>> stack;
+  // TODO: Handle DIArgList case
+  stack.push_back(producedSymbolicValue);
+  KLEE_DEBUG(dbgs() << "Pushed initial value onto stack: "
+                    << producedSymbolicValue << "\n");
+  ExprBuilder *builder = createDefaultExprBuilder();
+
+  // Only value expressions are supported, so all non-empty expressions should
+  // be terminated with the stack value operation.
+  bool isValueExpr = false;
+
+  for (const auto &exprOp : expr->expr_ops()) {
+    const auto &opcode = exprOp.getOp();
+    switch (opcode) {
+    // 0x10 / 016
+    // Provides an unsigned integer constant.
+    case dwarf::DW_OP_constu:
+    // 0x11 / 017
+    // Provides a signed integer constant.
+    case dwarf::DW_OP_consts: {
+      const auto &arg = exprOp.getArg(0);
+      // Machine word size used as a generic width for constants
+      const auto result = builder->Constant(arg, Expr::Int64);
+      KLEE_DEBUG(dbgs() << "constu/s: " << result << "\n");
+      stack.push_back(std::move(result));
+    } break;
+    // 0x1b / 027
+    // Pops the top two stack values, divides the former second entry by the
+    // former top of the stack using signed division, and pushes the result.
+    case dwarf::DW_OP_div: {
+      const auto arg1 = stack.back();
+      stack.pop_back();
+      const auto &arg2 = stack.back();
+      const auto result = builder->SDiv(arg2, arg1);
+      KLEE_DEBUG(dbgs() << "div: " << result << "\n");
+      stack.back() = std::move(result);
+    } break;
+    // 0x1c / 028
+    // Pops the top two stack values, subtracts the 2 former top of the stack
+    // from the former second entry, and pushes the result.
+    case dwarf::DW_OP_minus: {
+      const auto arg1 = stack.back();
+      stack.pop_back();
+      const auto &arg2 = stack.back();
+      const auto result = builder->Sub(arg2, arg1);
+      KLEE_DEBUG(dbgs() << "minus: " << result << "\n");
+      stack.back() = std::move(result);
+    } break;
+    // 0x1e / 030
+    // Pops the top two stack entries, multiplies them together, and pushes the
+    // result.
+    case dwarf::DW_OP_mul: {
+      const auto arg1 = stack.back();
+      stack.pop_back();
+      const auto &arg2 = stack.back();
+      const auto result = builder->Mul(arg1, arg2);
+      KLEE_DEBUG(dbgs() << "mul: " << result << "\n");
+      stack.back() = std::move(result);
+    } break;
+    // 0x22 / 034
+    // Pops the top two stack entries, adds them together, and pushes the
+    // result.
+    case dwarf::DW_OP_plus: {
+      const auto arg1 = stack.back();
+      stack.pop_back();
+      const auto &arg2 = stack.back();
+      const auto result = builder->Add(arg1, arg2);
+      KLEE_DEBUG(dbgs() << "plus: " << result << "\n");
+      stack.back() = std::move(result);
+    } break;
+    // 0x9f / 159
+    // Specifies that the object does not exist in memory but its value is
+    // nonetheless known and is at the top of the stack.
+    case dwarf::DW_OP_stack_value: {
+      isValueExpr = true;
+    } break;
+    default: {
+      KLEE_DEBUG(dbgs() << "Current opcode: " << opcode << "\n");
+      llvm_unreachable("Unexpected expression opcode");
+    } break;
+    }
+  }
+
+  evaluatedSymbolicValue = stack.back();
+  KLEE_DEBUG(dbgs() << "Result: " << evaluatedSymbolicValue << "\n");
+
+  assert(stack.size() == 1 && "Expression stack has unexpected size");
+  assert(isValueExpr && "Unexpected non-value expression");
+
+  return evaluatedSymbolicValue;
 }

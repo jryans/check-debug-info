@@ -57,6 +57,8 @@ struct Assignment {
   // This cannot be `const` if we want `std::swap` to work...
   // TODO: Work out if this is a bug in `ref`
   klee::ref<klee::Expr> producedSymbolicValue;
+  // Caches the evaluated symbolic value computed by `evaluate`
+  klee::ref<klee::Expr> evaluatedSymbolicValue;
 
   bool operator==(const Assignment &other) const {
     return std::tie(startLine, id) == std::tie(other.startLine, other.id);
@@ -69,6 +71,10 @@ struct Assignment {
   }
 
   bool isValueConsistent(const Variable &var, const llvm::Value *other) const;
+
+  // This starts from the produced symbolic value and evaluates the expression
+  // attached to the variable intrinsic (if any).
+  klee::ref<klee::Expr> evaluate();
 };
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
