@@ -140,6 +140,16 @@ ref<Expr> Assignment::evaluate() {
     }
   }
 
+  // Apply same implicit truncation debuggers use if source variable is smaller
+  // width than the current value.
+  const auto *variable = varIntrinsic->getVariable();
+  const auto &varWidth = variable->getSizeInBits().getValue();
+  assert(stack.back()->getWidth() >= varWidth &&
+         "Expression result smaller than variable width");
+  if (varWidth < stack.back()->getWidth()) {
+    stack.back() = builder->Extract(stack.back(), 0, varWidth);
+  }
+
   evaluatedSymbolicValue = stack.back();
   KLEE_DEBUG(dbgs() << "Result: " << evaluatedSymbolicValue << "\n");
 
