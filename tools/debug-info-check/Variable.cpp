@@ -41,6 +41,22 @@ bool Assignment::isValueConsistent(const Variable &var,
   return false;
 }
 
+void autoTruncate(ExprBuilder *builder, ref<Expr> &arg1, ref<Expr> &arg2) {
+  const auto width1 = arg1->getWidth();
+  const auto width2 = arg2->getWidth();
+  if (width1 == width2)
+    return;
+  if (width1 < width2) {
+    arg2 = builder->Extract(arg2, 0, width1);
+    return;
+  }
+  if (width2 < width1) {
+    arg1 = builder->Extract(arg1, 0, width2);
+    return;
+  }
+  llvm_unreachable("Unexpected narrowing case");
+}
+
 ref<Expr> Assignment::evaluate() {
   if (evaluatedSymbolicValue)
     return evaluatedSymbolicValue;
@@ -87,9 +103,10 @@ ref<Expr> Assignment::evaluate() {
     // Pops the top two stack values, divides the former second entry by the
     // former top of the stack using signed division, and pushes the result.
     case dwarf::DW_OP_div: {
-      const auto arg1 = stack.back();
+      auto arg1 = stack.back();
       stack.pop_back();
-      const auto &arg2 = stack.back();
+      auto &arg2 = stack.back();
+      autoTruncate(builder, arg1, arg2);
       const auto result = builder->SDiv(arg2, arg1);
       KLEE_DEBUG(dbgs() << "div: " << result << "\n");
       stack.back() = std::move(result);
@@ -98,9 +115,10 @@ ref<Expr> Assignment::evaluate() {
     // Pops the top two stack values, subtracts the 2 former top of the stack
     // from the former second entry, and pushes the result.
     case dwarf::DW_OP_minus: {
-      const auto arg1 = stack.back();
+      auto arg1 = stack.back();
       stack.pop_back();
-      const auto &arg2 = stack.back();
+      auto &arg2 = stack.back();
+      autoTruncate(builder, arg1, arg2);
       const auto result = builder->Sub(arg2, arg1);
       KLEE_DEBUG(dbgs() << "minus: " << result << "\n");
       stack.back() = std::move(result);
@@ -109,9 +127,10 @@ ref<Expr> Assignment::evaluate() {
     // Pops the top two stack entries, multiplies them together, and pushes the
     // result.
     case dwarf::DW_OP_mul: {
-      const auto arg1 = stack.back();
+      auto arg1 = stack.back();
       stack.pop_back();
-      const auto &arg2 = stack.back();
+      auto &arg2 = stack.back();
+      autoTruncate(builder, arg1, arg2);
       const auto result = builder->Mul(arg1, arg2);
       KLEE_DEBUG(dbgs() << "mul: " << result << "\n");
       stack.back() = std::move(result);
@@ -120,9 +139,10 @@ ref<Expr> Assignment::evaluate() {
     // Pops the top two stack entries, adds them together, and pushes the
     // result.
     case dwarf::DW_OP_plus: {
-      const auto arg1 = stack.back();
+      auto arg1 = stack.back();
       stack.pop_back();
-      const auto &arg2 = stack.back();
+      auto &arg2 = stack.back();
+      autoTruncate(builder, arg1, arg2);
       const auto result = builder->Add(arg1, arg2);
       KLEE_DEBUG(dbgs() << "plus: " << result << "\n");
       stack.back() = std::move(result);
