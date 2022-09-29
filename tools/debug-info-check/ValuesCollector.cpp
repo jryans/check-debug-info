@@ -26,6 +26,7 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -59,7 +60,8 @@ public:
   void incPathsExplored(std::uint32_t num = 1) override {}
 
   void visitBeforeExecution(ExecutionState &state, KInstruction *ki) override;
-  void recordValue(const Value *producer, ref<Expr> symbolicValue);
+  void recordValue(const Value *filter, const Value *producer,
+                   ref<Expr> symbolicValue);
 
   void processTestCase(const ExecutionState &state, const char *err,
                        const char *suffix) override {}
@@ -96,34 +98,59 @@ void VCHandler::visitBeforeExecution(ExecutionState &state, KInstruction *ki) {
 
   if (const auto *storeInstruction = dyn_cast<StoreInst>(instruction)) {
     ref<Expr> symbolicValue = interpreter->getOperandCell(state, ki, 0).value;
-    recordValue(storeInstruction, symbolicValue);
+    recordValue(storeInstruction, storeInstruction, symbolicValue);
   } else if (const auto *valueIntrinsic = dyn_cast<DbgValueInst>(instruction)) {
-    // Calls (incl. intrinsics) store the call target as operand 0, so their
-    // real operands are shifted over by 1.
-    ref<Expr> symbolicValue = interpreter->getOperandCell(state, ki, 1).value;
-    recordValue(valueIntrinsic, symbolicValue);
+    for (size_t i = 0, e = valueIntrinsic->getNumVariableLocationOps(); i < e;
+         ++i) {
+      const Value *producer = valueIntrinsic->getValue(i);
+      // Calls (incl. intrinsics) store the call target as operand 0, so their
+      // real operands are shifted over by 1.
+      ref<Expr> symbolicValue =
+          interpreter->getOperandCell(state, ki, i + 1).value;
+      recordValue(valueIntrinsic, producer, symbolicValue);
+    }
   }
 }
 
-void VCHandler::recordValue(const Value *producer, ref<Expr> symbolicValue) {
+void VCHandler::recordValue(const Value *filter, const Value *producer,
+                            ref<Expr> symbolicValue) {
+  assert(filter && "Assignment filter missing");
+  // We currently check filters against producers (as a way of matching stores).
+  // This works okay for stores since they are `void` type (have no IR result),
+  // so they can't be used as a direct input elsewhere.
+  // TODO: Revisit this later, as we may in fact want to _take advantage_ of
+  // non-void producers matching multiple assignments as some kind of
+  // performance optimisation.
+  assert(filter->getType()->isVoidTy() &&
+         "Assignment filter unexpectedly has a result");
   assert(producer && "Symbolic value producer missing");
   if (!symbolicValue)
     return;
 
-  // Look for assignments where this was the producer
+  // Look for assignments matching the filter value
   // TODO: Gather all producers up front first for faster filtering...?
   const auto matchingAssignments =
       make_filter_range(varsAssignments, [&](VA &pair) {
         const auto &assignment = pair.second;
         // TODO: Re-think producer vs. intrinsic structure...?
-        return assignment.producer == producer ||
-               assignment.varIntrinsic == producer;
+        return assignment.producers[0] == filter ||
+               assignment.varIntrinsic == filter;
       });
 
   for (VA &pair : matchingAssignments) {
     const auto &var = pair.first;
     auto &assignment = pair.second;
-    assignment.producedSymbolicValue = symbolicValue;
+    // TODO: Track multiple values for an assignment when visiting a block
+    // multiple times (if we end up needing that)
+    if (assignment.producedSymbolicValues.size() == assignment.producers.size())
+      continue;
+    for (size_t i = 0, e = assignment.producers.size(); i < e; ++i) {
+      if (assignment.producers[i] != producer)
+        continue;
+      assert(i == assignment.producedSymbolicValues.size() &&
+             "Producers collected out of order");
+      assignment.producedSymbolicValues.push_back(symbolicValue);
+    }
     KLEE_DEBUG(dbgs() << "Collected value for `" << var.name << "`\n");
     KLEE_DEBUG(dbgs() << printValue(*producer) << "\n");
     KLEE_DEBUG(dbgs() << symbolicValue << "\n");

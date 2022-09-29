@@ -3,6 +3,7 @@
 
 #include "klee/ADT/Ref.h"
 #include "klee/Expr/Expr.h"
+#include "klee/Module/Printing.h"
 
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -40,6 +41,33 @@ struct Variable {
   }
 };
 
+using Values = llvm::SmallVector<const llvm::Value *, 2>;
+
+inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
+                                     const Values &values) {
+  if (values.empty()) {
+    out << "<empty>";
+    return out;
+  }
+
+  if (values.size() == 1) {
+    out << klee::printValue(*values[0]);
+    return out;
+  }
+
+  out << "[ ";
+  for (const auto *value : values) {
+    out << klee::printValue(*value);
+    if (value != values.back())
+      out << ", ";
+  }
+  out << " ]";
+
+  return out;
+}
+
+using Exprs = llvm::SmallVector<klee::ref<klee::Expr>, 2>;
+
 struct Assignment {
   // TODO: Pointer to the associated `Variable`...?
 
@@ -49,14 +77,14 @@ struct Assignment {
 
   // Not checked during comparison
 
-  const llvm::Value *producer;
+  Values producers;
   const llvm::DbgVariableIntrinsic *varIntrinsic;
   // Producer or variable intrinsic assembly line
   // Used for relative ordering with the same start line
   unsigned int asmLine;
-  // This cannot be `const` if we want `std::swap` to work...
+  // ref<Expr> cannot be `const` if we want `std::swap` to work...
   // TODO: Work out if this is a bug in `ref`
-  klee::ref<klee::Expr> producedSymbolicValue;
+  Exprs producedSymbolicValues;
   // Caches the evaluated symbolic value computed by `evaluate`
   klee::ref<klee::Expr> evaluatedSymbolicValue;
 

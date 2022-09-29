@@ -20,12 +20,15 @@ using namespace llvm;
 
 bool Assignment::isValueConsistent(const Variable &var,
                                    const Value *other) const {
-  if (producer == other)
+  assert(producers.size() == 1 &&
+         "isValueConsistent is unimplemented for multiple producers");
+
+  if (producers[0] == other)
     return true;
 
   // As mentioned in `replaceAllDbgUsesWith`, integers wider than the source
   // variable are assumed to be safe without needing explicit conversions.
-  if (const auto *producerInt = dyn_cast<ConstantInt>(producer)) {
+  if (const auto *producerInt = dyn_cast<ConstantInt>(producers[0])) {
     if (const auto *otherInt = dyn_cast<ConstantInt>(other)) {
       const auto varSize = var.diVariable->getSizeInBits().getValue();
       assert(producerInt->getType()->getPrimitiveSizeInBits() >= varSize &&
@@ -64,7 +67,9 @@ ref<Expr> Assignment::evaluate() {
   // Empty expression
   const auto *expr = varIntrinsic->getExpression();
   if (!expr->getNumElements()) {
-    evaluatedSymbolicValue = producedSymbolicValue;
+    assert(producers.size() == 1 &&
+           "Empty dbg intrinsic expression with multiple inputs");
+    evaluatedSymbolicValue = producedSymbolicValues[0];
     return evaluatedSymbolicValue;
   }
 
@@ -74,10 +79,14 @@ ref<Expr> Assignment::evaluate() {
          "Unexpected dbg intrinsic with expression");
 
   SmallVector<ref<Expr>> stack;
-  // TODO: Handle DIArgList case
-  stack.push_back(producedSymbolicValue);
-  KLEE_DEBUG(dbgs() << "Pushed initial value onto stack: "
-                    << producedSymbolicValue << "\n");
+  // If there's a single input, then that is automatically placed on the stack
+  // by default. Otherwise, we expect explicit ops to push each value onto the
+  // stack manually.
+  if (producers.size() == 1) {
+    stack.push_back(producedSymbolicValues[0]);
+    KLEE_DEBUG(dbgs() << "Pushed initial value onto stack: "
+                      << producedSymbolicValues[0] << "\n");
+  }
   ExprBuilder *builder = createDefaultExprBuilder();
 
   // Only value expressions are supported, so all non-empty expressions should
@@ -152,6 +161,17 @@ ref<Expr> Assignment::evaluate() {
     // nonetheless known and is at the top of the stack.
     case dwarf::DW_OP_stack_value: {
       isValueExpr = true;
+    } break;
+    // 0x1005 / 4101
+    // Pushes one of several input values onto the stack identified by an index
+    // argument.
+    case dwarf::DW_OP_LLVM_arg: {
+      assert(producers.size() > 1 &&
+             "Argument opcode not expected with a single input");
+      const auto &index = exprOp.getArg(0);
+      const auto result = producedSymbolicValues[index];
+      KLEE_DEBUG(dbgs() << "LLVM_arg: " << result << "\n");
+      stack.push_back(std::move(result));
     } break;
     default: {
       KLEE_DEBUG(dbgs() << "Current opcode: " << opcode << "\n");

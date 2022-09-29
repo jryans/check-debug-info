@@ -25,6 +25,7 @@
 
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LegacyPassManager.h"
@@ -395,14 +396,8 @@ static int getOperandNum(Value *v,
     return registerMap[inst];
   } else if (Argument *a = dyn_cast<Argument>(v)) {
     return a->getArgNo();
-  } else if (isa<BasicBlock>(v) || isa<InlineAsm>(v)) {
-    return -1;
-  } else if (const auto *metadataAsValue = dyn_cast<MetadataAsValue>(v)) {
-    // Track values wrapped as metadata going into e.g. `dbg.value` intrinsics
-    if (const auto *valueAsMetadata =
-            dyn_cast<ValueAsMetadata>(metadataAsValue->getMetadata())) {
-      return getOperandNum(valueAsMetadata->getValue(), registerMap, km, ki);
-    }
+  } else if (isa<BasicBlock>(v) || isa<InlineAsm>(v) ||
+             isa<MetadataAsValue>(v)) {
     return -1;
   } else {
     assert(isa<Constant>(v));
@@ -461,12 +456,42 @@ KFunction::KFunction(llvm::Function *_function,
       if (isa<CallInst>(it) || isa<InvokeInst>(it)) {
         const CallBase &cb = cast<CallBase>(*inst);
         Value *val = cb.getCalledOperand();
-        unsigned numArgs = cb.arg_size();
-        ki->operands = new int[numArgs+1];
+        unsigned operands = cb.arg_size() + 1;
+        for (Value *v : cb.args()) {
+          if (const auto *metadataAsValue = dyn_cast<MetadataAsValue>(v)) {
+            const auto *metadata = metadataAsValue->getMetadata();
+            if (const auto *argList = dyn_cast<DIArgList>(metadata)) {
+              // Flatten arg list into operands
+              --operands;
+              operands += argList->getArgs().size();
+            }
+          }
+        }
+        ki->operands = new int[operands];
         ki->operands[0] = getOperandNum(val, registerMap, km, ki);
-        for (unsigned j=0; j<numArgs; j++) {
-          Value *v = cb.getArgOperand(j);
-          ki->operands[j+1] = getOperandNum(v, registerMap, km, ki);
+        unsigned op = 0;
+        for (Value *v : cb.args()) {
+          if (const auto *metadataAsValue = dyn_cast<MetadataAsValue>(v)) {
+            // Track values wrapped as metadata going into e.g. `dbg.value`
+            // intrinsics
+            const auto *metadata = metadataAsValue->getMetadata();
+            if (const auto *argList = dyn_cast<DIArgList>(metadata)) {
+              // Flatten arg list into operands
+              for (const auto *argAsMetadata : argList->getArgs()) {
+                ki->operands[++op] = getOperandNum(argAsMetadata->getValue(),
+                                                   registerMap, km, ki);
+              }
+            } else if (const auto *valueAsMetadata =
+                           dyn_cast<ValueAsMetadata>(metadata)) {
+              ki->operands[++op] = getOperandNum(valueAsMetadata->getValue(),
+                                                 registerMap, km, ki);
+            } else {
+              // Other uses of metadata (e.g. DILocalVariable) are ignored
+              ki->operands[++op] = -1;
+            }
+          } else {
+            ki->operands[++op] = getOperandNum(v, registerMap, km, ki);
+          }
         }
       } else {
         unsigned numOperands = it->getNumOperands();

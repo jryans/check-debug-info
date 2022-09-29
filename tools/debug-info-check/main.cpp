@@ -86,23 +86,38 @@ extern cl::opt<bool> OnlyUncoveredBranchTargets;
 bool addAssignment(const InstructionInfoTable &instrInfo,
                    const DbgVariableIntrinsic *varIntrinsic,
                    const Variable &variable, const StringRef producerKind,
-                   const Value *producer, VToAs &varToAs) {
-  if (!producer)
+                   const Values &&producers, VToAs &varToAs) {
+  if (producers.empty())
     return true;
-  if (!isa<Instruction>(*producer) && !isa<Argument>(*producer) &&
-      !isa<ConstantInt>(*producer))
-    return true;
+  for (const auto *producer : producers) {
+    if (!isa<Instruction>(*producer) && !isa<Argument>(*producer) &&
+        !isa<ConstantInt>(*producer))
+      return true;
+  }
 
   KLEE_DEBUG(dbgs() << producerKind << " `" << variable.name << "`, ");
-  if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
-    KLEE_DEBUG(dbgs() << "asm line "
-                      << instrInfo.getInfo(*producerInstruction).assemblyLine
-                      << "\n");
-    KLEE_DEBUG(dbgs() << printInstruction(*producerInstruction) << "\n");
-  } else if (const auto *producerArgument = dyn_cast<Argument>(producer)) {
-    KLEE_DEBUG(dbgs() << "arg " << producerArgument->getArgNo() << "\n");
-  } else if (const auto *producerInt = dyn_cast<ConstantInt>(producer)) {
-    KLEE_DEBUG(dbgs() << "value " << producerInt->getValue() << "\n");
+  if (producers.size() > 1)
+    KLEE_DEBUG(dbgs() << "[ ");
+  for (const auto *producer : producers) {
+    if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
+      KLEE_DEBUG(
+          dbgs() << "asm line "
+                 << instrInfo.getInfo(*producerInstruction).assemblyLine);
+    } else if (const auto *producerArgument = dyn_cast<Argument>(producer)) {
+      KLEE_DEBUG(dbgs() << "arg " << producerArgument->getArgNo());
+    } else if (const auto *producerInt = dyn_cast<ConstantInt>(producer)) {
+      KLEE_DEBUG(dbgs() << "value " << producerInt->getValue());
+    }
+    if (producer != producers.back())
+      KLEE_DEBUG(dbgs() << ", ");
+  }
+  if (producers.size() > 1)
+    KLEE_DEBUG(dbgs() << " ]");
+  KLEE_DEBUG(dbgs() << "\n");
+  for (const auto *producer : producers) {
+    if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
+      KLEE_DEBUG(dbgs() << printInstruction(*producerInstruction) << "\n");
+    }
   }
 
   auto &assignments = varToAs[variable];
@@ -110,16 +125,18 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
   // Check if this redundantly specifies the previous assignment
   if (assignments.size()) {
     const auto &lastAssignment = assignments.back();
-    if (lastAssignment.producer == producer) {
+    if (lastAssignment.producers == producers) {
       KLEE_DEBUG(dbgs() << "  Value is same as last assignment, skipping\n");
       return true;
     }
   }
 
+  // TODO: Rethink this phi handling...
   // For phi nodes, check if they redundantly match the previous assignments for
   // all incoming edges. This may involve traversing multiple predecessor
   // blocks.
-  if (const auto *phiNode = dyn_cast<PHINode>(producer)) {
+  if (producers.size() == 1 && isa<PHINode>(producers[0])) {
+    const auto *phiNode = cast<PHINode>(producers[0]);
     bool match = true;
     for (const auto &phiEdge : phiNode->incoming_values()) {
       const Value &value = *phiEdge;
@@ -171,7 +188,7 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
 
       if (!lastAssignment->isValueConsistent(variable, &value)) {
         KLEE_DEBUG(dbgs() << "  Phi edge value mismatch\n"
-                          << "    " << *lastAssignment->producer << "\n"
+                          << "    " << lastAssignment->producers << "\n"
                           << "    " << value << "\n");
         match = false;
         break;
@@ -186,14 +203,20 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
 
   Assignment assignment = {};
 
-  if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
-    const auto debugLoc = producerInstruction->getDebugLoc();
-    if (debugLoc)
-      assignment.startLine = debugLoc.getLine();
-  } else if (const auto *producerArgument = dyn_cast<Argument>(producer)) {
-    // Arguments may be spread over multiple lines, so use the declaration to
-    // get the most precise line info.
-    assignment.startLine = variable.declLine;
+  // When there are multiple producers, consider the start line of the
+  // assignment to the be the max of source line numbers from all producers
+  // (since the assignment is not observable until all inputs are live).
+  for (const auto *producer : producers) {
+    if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
+      const auto debugLoc = producerInstruction->getDebugLoc();
+      if (debugLoc)
+        assignment.startLine =
+            std::max(assignment.startLine, debugLoc.getLine());
+    } else if (const auto *producerArgument = dyn_cast<Argument>(producer)) {
+      // Arguments may be spread over multiple lines, so use the declaration to
+      // get the most precise line info.
+      assignment.startLine = std::max(assignment.startLine, variable.declLine);
+    }
   }
   if (!assignment.startLine && !assignments.size()) {
     // If there are no other assignments so far, then assume this one starts at
@@ -208,14 +231,15 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
   assert(assignment.startLine >= variable.declLine &&
          "Assignment starts before declaration");
 
-  assignment.producer = producer;
-  assignment.varIntrinsic = varIntrinsic;
   // TODO: Should `producer` and `varIntrinsic` be merged somehow...?
-  if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
+  if (producers.size() == 1 && isa<Instruction>(producers[0])) {
+    const auto *producerInstruction = cast<Instruction>(producers[0]);
     assignment.asmLine = instrInfo.getInfo(*producerInstruction).assemblyLine;
   } else {
     assignment.asmLine = instrInfo.getInfo(*varIntrinsic).assemblyLine;
   }
+  assignment.producers = std::move(producers);
+  assignment.varIntrinsic = varIntrinsic;
 
   KLEE_DEBUG(dbgs() << "  Added assignment starting at src line "
                     << assignment.startLine << "\n");
@@ -261,23 +285,23 @@ bool gatherAssignments(const StringRef moduleKind,
       return summary;
     for (const auto *addressUse : address->users()) {
       if (const auto *storeInstruction = dyn_cast<StoreInst>(addressUse)) {
+        const Values producers(1, storeInstruction);
         summary &= addAssignment(instrInfo, declareIntrinsic, variable,
-                                 "Store to", storeInstruction, varToAs);
+                                 "Store to", std::move(producers), varToAs);
       }
     }
   } else if (const auto *valueIntrinsic =
                  dyn_cast<DbgValueInst>(&instruction)) {
     // Find related instructions via the `dbg.value`'s location ops
-    // TODO: Handle DIArgList case
-    assert(!valueIntrinsic->hasArgList() && "Unexpected DIArgList");
     KLEE_DEBUG(dbgs() << "@dbg.value mapping for"
                       << " `" << variable.name << "`, ");
     KLEE_DEBUG(dbgs() << "asm line "
                       << instrInfo.getInfo(*valueIntrinsic).assemblyLine
                       << "\n");
-    const auto *producer = valueIntrinsic->getValue();
-    summary &= addAssignment(instrInfo, valueIntrinsic, variable,
-                             "Value produced for", producer, varToAs);
+    const Values producers(valueIntrinsic->getValues());
+    summary &=
+        addAssignment(instrInfo, valueIntrinsic, variable, "Value produced for",
+                      std::move(producers), varToAs);
   } else {
     llvm_unreachable("Unexpected dbg intrinsic");
   }
@@ -516,12 +540,12 @@ int main(int argc, char **argv) {
     for (const auto &varAssn : mismatchedBeforeVAs) {
       outs() << "❌ Mismatched before `" << varAssn.first.name << "` ";
       outs() << "assn " << varAssn.second << " ";
-      outs() << "from " << printValue(*varAssn.second.producer) << "\n";
+      outs() << "from " << varAssn.second.producers << "\n";
     }
     for (const auto &varAssn : mismatchedAfterVAs) {
       outs() << "❌ Mismatched after `" << varAssn.first.name << "` ";
       outs() << "assn " << varAssn.second << " ";
-      outs() << "from " << printValue(*varAssn.second.producer) << "\n";
+      outs() << "from " << varAssn.second.producers << "\n";
     }
   }
 
@@ -583,12 +607,12 @@ int main(int argc, char **argv) {
       if (!beforeSymValue) {
         outs() << "❌ Before `" << variable.name << "` ";
         outs() << "assn " << beforeAssn << " has no symbolic value ";
-        outs() << "from " << printValue(*beforeAssn.producer) << "\n";
+        outs() << "from " << beforeAssn.producers << "\n";
       }
       if (!afterSymValue) {
         outs() << "❌ After `" << variable.name << "` ";
         outs() << "assn " << afterAssn << " has no symbolic value ";
-        outs() << "from " << printValue(*afterAssn.producer) << "\n";
+        outs() << "from " << afterAssn.producers << "\n";
       }
       if (!beforeSymValue || !afterSymValue) {
         ++neValues;
@@ -598,11 +622,11 @@ int main(int argc, char **argv) {
       KLEE_DEBUG(dbgs() << "Checking equivalence of `" << variable.name << "` "
                         << "from\n"
                         << "assn " << beforeAssn << "\n"
-                        << printValue(*beforeAssn.producer) << "\n"
+                        << beforeAssn.producers << "\n"
                         << beforeSymValue << "\n"
                         << "and\n"
                         << "assn " << afterAssn << "\n"
-                        << printValue(*afterAssn.producer) << "\n"
+                        << afterAssn.producers << "\n"
                         << afterSymValue << "\n");
 
       assert(beforeSymValue->getWidth() == afterSymValue->getWidth() &&
