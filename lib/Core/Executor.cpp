@@ -4572,6 +4572,8 @@ void Executor::runFunctionAsMain(Function *f,
   for (unsigned i = 0, e = f->arg_size(); i != e; ++i)
     bindArgument(kf, i, *state, arguments[i]);
 
+  interpreterHandler->visitArguments(*state, kf);
+
   if (argvMO) {
     ObjectState *argvOS = bindObjectInState(*state, argvMO, false);
 
