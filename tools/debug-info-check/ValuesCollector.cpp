@@ -228,8 +228,8 @@ collectValues(StringRef runtimeDir, std::unique_ptr<llvm::Module> mainModule,
   // TODO: Seeds...?
   // TODO: Change directory...?
 
-  char *argv[0] = {};
-  char *envp[0] = {};
+  char *argv[1] = {nullptr};
+  char *envp[1] = {nullptr};
   interpreter->runFunctionAsMain(mainFn, /*argc=*/0, argv, envp);
 
   // TODO: End time...?
