@@ -69,6 +69,8 @@ ref<Expr> Assignment::evaluate() {
   if (!expr->getNumElements()) {
     assert(producers.size() == 1 &&
            "Empty dbg intrinsic expression with multiple inputs");
+    assert(producedSymbolicValues.size() == 1 &&
+           "Symbolic value missing for producer");
     evaluatedSymbolicValue = producedSymbolicValues[0];
     return evaluatedSymbolicValue;
   }
@@ -83,6 +85,8 @@ ref<Expr> Assignment::evaluate() {
   // by default. Otherwise, we expect explicit ops to push each value onto the
   // stack manually.
   if (producers.size() == 1) {
+    assert(producedSymbolicValues.size() == 1 &&
+           "Symbolic value missing for producer");
     stack.push_back(producedSymbolicValues[0]);
     KLEE_DEBUG(dbgs() << "Pushed initial value onto stack: "
                       << producedSymbolicValues[0] << "\n");
@@ -169,6 +173,8 @@ ref<Expr> Assignment::evaluate() {
       assert(producers.size() > 1 &&
              "Argument opcode not expected with a single input");
       const auto &index = exprOp.getArg(0);
+      assert(producedSymbolicValues.size() >= index + 1 &&
+             "Symbolic value missing for producer");
       const auto result = producedSymbolicValues[index];
       KLEE_DEBUG(dbgs() << "LLVM_arg: " << result << "\n");
       stack.push_back(std::move(result));
