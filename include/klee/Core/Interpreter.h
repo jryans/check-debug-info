@@ -90,8 +90,15 @@ public:
     /// symbolic execution on concrete programs.
     unsigned MakeConcreteSymbolic;
 
+    /// Isolates each function for independent analysis through the following
+    /// changes:
+    ///
+    /// * Function inputs become symbolic (incl. memory outside the function)
+    /// * Does not descend into other functions (effects become symbolic)
+    bool IndependentFunctions;
+
     InterpreterOptions()
-      : MakeConcreteSymbolic(false)
+      : MakeConcreteSymbolic(false), IndependentFunctions(false)
     {}
   };
 

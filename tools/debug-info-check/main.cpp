@@ -567,18 +567,18 @@ int main(int argc, char **argv) {
   std::unique_ptr<Interpreter> beforeInterpreter;
   {
     SmallString<128> outputDir = createOutputDir(beforeFile);
-    // TODO: Inject our own automatic symbolic wrapper
-    beforeInterpreter = collectValues(runtimeDir, std::move(beforeModule),
-                                      "main", outputDir, beforeFlatVAs);
+    beforeInterpreter =
+        collectValues(runtimeDir, std::move(beforeModule),
+                      beforeDefinition.getName(), outputDir, beforeFlatVAs);
   }
 
   // Collect symbolic values for after module
   std::unique_ptr<Interpreter> afterInterpreter;
   {
     SmallString<128> outputDir = createOutputDir(afterFile);
-    // TODO: Inject our own automatic symbolic wrapper
-    afterInterpreter = collectValues(runtimeDir, std::move(afterModule), "main",
-                                     outputDir, afterFlatVAs);
+    afterInterpreter =
+        collectValues(runtimeDir, std::move(afterModule),
+                      afterDefinition.getName(), outputDir, afterFlatVAs);
   }
 
   {

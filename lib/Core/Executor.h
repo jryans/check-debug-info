@@ -329,6 +329,12 @@ private:
   void executeMakeSymbolic(ExecutionState &state, const MemoryObject *mo,
                            const std::string &name);
 
+  /// Called when entering a function as part of the function-independent mode
+  /// which isolates each function for independent analysis. In particular, this
+  /// step ensures that function inputs become symbolic (incl. memory outside
+  /// the function).
+  void enterIndependentFunction(ExecutionState &state, KFunction *kf);
+
   /// Create a new state where each input condition has been added as
   /// a constraint and return the results. The input state is included
   /// as one of the results. Note that the output vector may include

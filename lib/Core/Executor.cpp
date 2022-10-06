@@ -56,6 +56,7 @@
 
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/IR/Argument.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
@@ -67,6 +68,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IR/Type.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
@@ -4507,6 +4509,53 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
   }
 }
 
+void Executor::enterIndependentFunction(ExecutionState &state, KFunction *kf) {
+  const Function *f = kf->function;
+
+  if (DebugExecutionTrace)
+    *debugExecTraceFile << "Entering function " << kf->getName()
+                        << ", making args symbolic…\n";
+
+  // Treat each argument as if it were made symbolic
+  for (unsigned k = 0, numArgs = kf->numArgs; k < numArgs; ++k) {
+    const Argument *arg = f->getArg(k);
+
+    // Allocate memory for argument
+    const Instruction *functionStart = &*(f->begin()->begin());
+    const unsigned argSizeBytes =
+        kmodule->targetData->getTypeStoreSize(arg->getType());
+    const MemoryObject *argMemory =
+        memory->allocate(argSizeBytes,
+                         /*isLocal=*/true, /*isGlobal=*/false,
+                         /*allocSite=*/functionStart, /*alignment=*/8);
+    const StringRef argName = arg->getName();
+    argMemory->setName(argName.str());
+
+    if (!argMemory)
+      klee_error("Could not allocate memory for function arg");
+
+    // Mark argument memory as symbolic
+    unsigned id = 0;
+    std::string uniqueName = argName.str();
+    while (!state.arrayNames.insert(uniqueName).second) {
+      uniqueName = argName.str() + "_" + llvm::utostr(++id);
+    }
+    const Array *array = arrayCache.CreateArray(uniqueName, argMemory->size);
+    ObjectState *argState =
+        bindObjectInState(state, argMemory, /*isLocal=*/true, array);
+    state.addSymbolic(argMemory, array);
+
+    // Rebind argument value as result of load from new symbolic memory
+    ref<Expr> argSymbolicValue = argState->read(0, argSizeBytes * 8);
+    bindArgument(kf, k, state, argSymbolicValue);
+
+    if (DebugExecutionTrace)
+      *debugExecTraceFile << "Created symbolic memory for arg "
+                          << *arg->getType() << " " << argName << ": "
+                          << argSymbolicValue << "\n";
+  }
+}
+
 /***/
 
 void Executor::runFunctionAsMain(Function *f,
@@ -4573,6 +4622,10 @@ void Executor::runFunctionAsMain(Function *f,
     bindArgument(kf, i, *state, arguments[i]);
 
   interpreterHandler->visitArguments(*state, kf);
+
+  // TODO: Should this be another interpreter handler as well...?
+  if (interpreterOpts.IndependentFunctions)
+    enterIndependentFunction(*state, kf);
 
   if (argvMO) {
     ObjectState *argvOS = bindObjectInState(*state, argvMO, false);

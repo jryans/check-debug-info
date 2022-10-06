@@ -207,6 +207,7 @@ collectValues(StringRef runtimeDir, std::unique_ptr<llvm::Module> mainModule,
   // TODO: Program args and environment...?
 
   Interpreter::InterpreterOptions interpreterOpts;
+  interpreterOpts.IndependentFunctions = true;
   VCHandler handler(outputDir, varsAssignments);
   std::unique_ptr<Interpreter> interpreter(
       Interpreter::create(ctx, interpreterOpts, &handler));
