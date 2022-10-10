@@ -639,9 +639,11 @@ void Executor::initializeGlobalObject(ExecutionState &state, ObjectState *os,
 
 MemoryObject * Executor::addExternalObject(ExecutionState &state, 
                                            void *addr, unsigned size, 
-                                           bool isReadOnly) {
+                                           bool isReadOnly,
+                                           llvm::StringRef name) {
   auto mo = memory->allocateFixed(reinterpret_cast<std::uint64_t>(addr),
                                   size, nullptr);
+  mo->setName(name.str());
   ObjectState *os = bindObjectInState(state, mo, false);
   for(unsigned i = 0; i < size; i++)
     os->write8(i, ((uint8_t*)addr)[i]);
@@ -690,6 +692,7 @@ void Executor::allocateGlobalObjects(ExecutionState &state) {
       // its address can be used for function pointers.
       // TODO: Check whether the object is accessed?
       auto mo = memory->allocate(8, false, true, &f, 8);
+      mo->setName(f.getName().str());
       addr = Expr::createPointer(mo->address);
       legalFunctions.emplace(mo->address, &f);
     }
@@ -699,8 +702,8 @@ void Executor::allocateGlobalObjects(ExecutionState &state) {
 
 #ifndef WINDOWS
   int *errno_addr = getErrnoLocation(state);
-  MemoryObject *errnoObj =
-      addExternalObject(state, (void *)errno_addr, sizeof *errno_addr, false);
+  MemoryObject *errnoObj = addExternalObject(
+      state, (void *)errno_addr, sizeof *errno_addr, false, "errno");
   // Copy values from and to program space explicitly
   errnoObj->isUserSpecified = true;
 #endif
@@ -715,18 +718,20 @@ void Executor::allocateGlobalObjects(ExecutionState &state) {
        [-128,-1).  ISO C requires that the ctype functions work for `unsigned */
   const uint16_t **addr = __ctype_b_loc();
   addExternalObject(state, const_cast<uint16_t*>(*addr-128),
-                    384 * sizeof **addr, true);
-  addExternalObject(state, addr, sizeof(*addr), true);
+                    384 * sizeof **addr, true, "__ctype_b_loc");
+  addExternalObject(state, addr, sizeof(*addr), true, "__ctype_b_loc.addr");
     
   const int32_t **lower_addr = __ctype_tolower_loc();
   addExternalObject(state, const_cast<int32_t*>(*lower_addr-128),
-                    384 * sizeof **lower_addr, true);
-  addExternalObject(state, lower_addr, sizeof(*lower_addr), true);
-  
+                    384 * sizeof **lower_addr, true, "__ctype_tolower_loc");
+  addExternalObject(state, lower_addr, sizeof(*lower_addr), true,
+                    "__ctype_tolower_loc.addr");
+
   const int32_t **upper_addr = __ctype_toupper_loc();
   addExternalObject(state, const_cast<int32_t*>(*upper_addr-128),
-                    384 * sizeof **upper_addr, true);
-  addExternalObject(state, upper_addr, sizeof(*upper_addr), true);
+                    384 * sizeof **upper_addr, true, "__ctype_toupper_loc");
+  addExternalObject(state, upper_addr, sizeof(*upper_addr), true,
+                    "__ctype_toupper_loc.addr");
 #endif
 #endif
 #endif
@@ -772,6 +777,7 @@ void Executor::allocateGlobalObjects(ExecutionState &state) {
                                         /*alignment=*/globalObjectAlignment);
     if (!mo)
       klee_error("out of memory");
+    mo->setName(v.getName().str());
     globalObjects.emplace(&v, mo);
     globalAddresses.emplace(&v, mo->getBaseExpr());
   }
@@ -1635,6 +1641,7 @@ MemoryObject *Executor::serializeLandingpad(ExecutionState &state,
 
   MemoryObject *mo =
       memory->allocate(serialized.size(), true, false, nullptr, 1);
+  mo->setName(lpi.getName().str());
   ObjectState *os = bindObjectInState(state, mo, false);
   for (unsigned i = 0; i < serialized.size(); i++) {
     os->write8(i, serialized[i]);
@@ -2090,6 +2097,10 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
         terminateStateOnExecError(state, "out of memory (varargs)");
         return;
       }
+      std::string name;
+      llvm::raw_string_ostream nameStream(name);
+      nameStream << f->getName() << " varargs";
+      mo->setName(nameStream.str());
 
       if (mo) {
         if ((WordSize == Expr::Int64) && (mo->address & 15) &&
@@ -4142,6 +4153,7 @@ void Executor::executeAlloc(ExecutionState &state,
       bindLocal(target, state, 
                 ConstantExpr::alloc(0, Context::get().getPointerWidth()));
     } else {
+      mo->setName(target->inst->getName().str());
       ObjectState *os = bindObjectInState(state, mo, isLocal);
       if (zeroMemory) {
         os->initializeToZero();
@@ -4594,6 +4606,8 @@ void Executor::runFunctionAsMain(Function *f,
       if (!argvMO)
         klee_error("Could not allocate memory for function arguments");
 
+      argvMO->setName("argv");
+
       arguments.push_back(argvMO->getBaseExpr());
 
       if (++ai!=ae) {
@@ -4643,6 +4657,15 @@ void Executor::runFunctionAsMain(Function *f,
                              /*allocSite=*/state->pc->inst, /*alignment=*/8);
         if (!arg)
           klee_error("Could not allocate memory for function arguments");
+
+        std::string name;
+        llvm::raw_string_ostream nameStream(name);
+        if (i < argc)
+          nameStream << "argv[" << i << "]";
+        else
+          nameStream << "envp[" << i - (argc + 1) << "]";
+        arg->setName(nameStream.str());
+
         ObjectState *os = bindObjectInState(*state, arg, false);
         for (j=0; j<len+1; j++)
           os->write8(j, s[j]);
