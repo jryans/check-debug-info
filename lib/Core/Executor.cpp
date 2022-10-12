@@ -56,11 +56,14 @@
 
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Instructions.h"
@@ -4521,6 +4524,60 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
   }
 }
 
+ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
+                                          const llvm::Value *allocSite,
+                                          llvm::Type *valueType,
+                                          const llvm::Twine &valueName) {
+  assert(!valueType->isVoidTy() && !valueType->isFunctionTy() &&
+         !valueType->isArrayTy() && !valueType->isVectorTy() &&
+         "Unexpected type when building symbolic value");
+
+  // Allocate memory to hold symbolic value
+  const unsigned sizeBytes = kmodule->targetData->getTypeStoreSize(valueType);
+  const MemoryObject *valueMemory =
+      memory->allocate(sizeBytes,
+                        /*isLocal=*/true, /*isGlobal=*/false,
+                        /*allocSite=*/allocSite, /*alignment=*/8);
+  valueMemory->setName(valueName.str());
+
+  if (!valueMemory)
+    klee_error("Could not allocate memory for value");
+
+  if (DebugExecutionTrace)
+    *debugExecTraceFile << "Building symbolic value for " << *valueType << " "
+                        << valueName << " (" << sizeBytes * 8 << "b)…\n";
+
+  // Create object state instance from the new memory
+  unsigned id = 0;
+  std::string uniqueName = valueName.str();
+  while (!state.arrayNames.insert(uniqueName).second) {
+    uniqueName = valueName.str() + "_" + llvm::utostr(++id);
+  }
+  const Array *array = arrayCache.CreateArray(uniqueName, valueMemory->size);
+  ObjectState *valueState =
+      bindObjectInState(state, valueMemory, /*isLocal=*/true, array);
+
+  if (const auto *ptrType = dyn_cast<PointerType>(valueType)) {
+    auto *pointeeType = ptrType->getElementType();
+    // Build the pointee value
+    // TODO: Add the nullptr case as well...?
+    // TODO: Add the array case as well...?
+    ObjectState *pointeeState = buildSymbolicValue(
+        state, allocSite, pointeeType, valueName + ".deref");
+    // Store constant pointer value to avoid symbolic memory accesses
+    valueState->write(0, pointeeState->getObject()->getBaseExpr());
+  } else {
+    // Other values are symbolic
+    state.addSymbolic(valueMemory, array);
+  }
+
+  if (DebugExecutionTrace)
+      *debugExecTraceFile << "Built symbolic value for " << valueName << ": "
+                          << valueState->read(0, sizeBytes * 8) << "\n";
+
+  return valueState;
+}
+
 void Executor::enterIndependentFunction(ExecutionState &state, KFunction *kf) {
   const Function *f = kf->function;
 
@@ -4532,39 +4589,12 @@ void Executor::enterIndependentFunction(ExecutionState &state, KFunction *kf) {
   for (unsigned k = 0, numArgs = kf->numArgs; k < numArgs; ++k) {
     const Argument *arg = f->getArg(k);
 
-    // Allocate memory for argument
-    const Instruction *functionStart = &*(f->begin()->begin());
-    const unsigned argSizeBytes =
-        kmodule->targetData->getTypeStoreSize(arg->getType());
-    const MemoryObject *argMemory =
-        memory->allocate(argSizeBytes,
-                         /*isLocal=*/true, /*isGlobal=*/false,
-                         /*allocSite=*/functionStart, /*alignment=*/8);
-    const StringRef argName = arg->getName();
-    argMemory->setName(argName.str());
-
-    if (!argMemory)
-      klee_error("Could not allocate memory for function arg");
-
-    // Mark argument memory as symbolic
-    unsigned id = 0;
-    std::string uniqueName = argName.str();
-    while (!state.arrayNames.insert(uniqueName).second) {
-      uniqueName = argName.str() + "_" + llvm::utostr(++id);
-    }
-    const Array *array = arrayCache.CreateArray(uniqueName, argMemory->size);
-    ObjectState *argState =
-        bindObjectInState(state, argMemory, /*isLocal=*/true, array);
-    state.addSymbolic(argMemory, array);
+    // Build a symbolic value for the argument
+    const ObjectState *argState =
+        buildSymbolicValue(state, arg, arg->getType(), arg->getName());
 
     // Rebind argument value as result of load from new symbolic memory
-    ref<Expr> argSymbolicValue = argState->read(0, argSizeBytes * 8);
-    bindArgument(kf, k, state, argSymbolicValue);
-
-    if (DebugExecutionTrace)
-      *debugExecTraceFile << "Created symbolic memory for arg "
-                          << *arg->getType() << " " << argName << ": "
-                          << argSymbolicValue << "\n";
+    bindArgument(kf, k, state, argState->read(0, argState->size * 8));
   }
 }
 

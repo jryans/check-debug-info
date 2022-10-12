@@ -330,6 +330,15 @@ private:
   void executeMakeSymbolic(ExecutionState &state, const MemoryObject *mo,
                            const std::string &name);
 
+  /// Build a symbolic value for a given LLVM type. The high-level goal is for
+  /// data to be symbolic, but any pointers are made concrete to avoid symbolic
+  /// memory accesses. For complex types, this will recurse through each part to
+  /// build up the complete data structure.
+  ObjectState *buildSymbolicValue(ExecutionState &state,
+                                  const llvm::Value *allocSite,
+                                  llvm::Type *valueType,
+                                  const llvm::Twine &valueName);
+
   /// Called when entering a function as part of the function-independent mode
   /// which isolates each function for independent analysis. In particular, this
   /// step ensures that function inputs become symbolic (incl. memory outside
