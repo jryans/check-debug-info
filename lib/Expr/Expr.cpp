@@ -23,6 +23,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <regex>
 #include <sstream>
 
 using namespace klee;
@@ -510,9 +511,11 @@ Array::Array(const std::string &_name, uint64_t _size,
              Expr::Width _range)
     : name(_name), size(_size), domain(_domain), range(_range),
       constantValues(constantValuesBegin, constantValuesEnd) {
-
   assert((isSymbolicArray() || constantValues.size() == size) &&
          "Invalid size for constant array!");
+  std::regex validName("[a-zA-Z_][a-zA-Z0-9._]*");
+  assert((name.empty() || std::regex_match(name, validName)) &&
+         "Invalid characters in array name");
   computeHash();
 #ifndef NDEBUG
   for (const ref<ConstantExpr> *it = constantValuesBegin;
