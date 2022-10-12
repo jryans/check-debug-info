@@ -4566,6 +4566,32 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
         state, allocSite, pointeeType, valueName + ".deref");
     // Store constant pointer value to avoid symbolic memory accesses
     valueState->write(0, pointeeState->getObject()->getBaseExpr());
+  } else if (auto *structType = dyn_cast<StructType>(valueType)) {
+    const StructLayout *layout =
+        kmodule->targetData->getStructLayout(structType);
+    bool partiallySymbolic = false;
+    for (unsigned i = 0, e = structType->getNumElements(); i < e; ++i) {
+      const auto *elementType = structType->getElementType(i);
+      // Check each struct element for pointers
+      // TODO: Deduplicate with the block above
+      if (const auto *ptrType = dyn_cast<PointerType>(elementType)) {
+        auto *pointeeType = ptrType->getElementType();
+        // Build the pointee value
+        // TODO: Add the nullptr case as well...?
+        // TODO: Add the array case as well...?
+        ObjectState *pointeeState =
+            buildSymbolicValue(state, allocSite, pointeeType,
+                               valueName + ".e" + std::to_string(i) + ".deref");
+        // Store constant pointer value to avoid symbolic memory accesses
+        valueState->write(layout->getElementOffset(i),
+                          pointeeState->getObject()->getBaseExpr());
+      } else {
+        partiallySymbolic = true;
+      }
+    }
+    if (partiallySymbolic) {
+      state.addSymbolic(valueMemory, array);
+    }
   } else {
     // Other values are symbolic
     state.addSymbolic(valueMemory, array);
