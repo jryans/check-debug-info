@@ -202,5 +202,7 @@ ref<Expr> Assignment::evaluate() {
   assert(stack.size() == 1 && "Expression stack has unexpected size");
   assert(isValueExpr && "Unexpected non-value expression");
 
+  delete builder;
+
   return evaluatedSymbolicValue;
 }
