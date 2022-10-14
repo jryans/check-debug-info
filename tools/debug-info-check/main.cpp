@@ -670,11 +670,12 @@ int main(int argc, char **argv) {
       const auto queryMB = MemoryBuffer::getMemBuffer(queryStream.str());
       auto *parser =
           Parser::Create("", queryMB.get(), builder, /*clearArray=*/false);
+      SmallVector<const Decl *> decls;
       for (size_t i = 0, e = symbolicArrays.size(); i < e; ++i) {
         const auto *decl = parser->ParseTopLevelDecl();
         assert(isa<ArrayDecl>(decl) &&
                "Array lost during the roundtrip journey");
-        delete decl;
+        decls.push_back(decl);
       }
       const auto *command = parser->ParseTopLevelDecl();
       if (parser->GetNumErrors()) {
@@ -683,7 +684,7 @@ int main(int argc, char **argv) {
       assert(isa<QueryCommand>(command) &&
              "Query lost during the roundtrip journey");
       const auto *queryCommand = cast<QueryCommand>(command);
-      KLEE_DEBUG(dbgs() << "Combined query\n" << queryCommand->Query << "\n");
+      KLEE_DEBUG(dbgs() << "Parsed query\n" << queryCommand->Query << "\n");
 
       ConstraintSet constraints;
       Query query(constraints, queryCommand->Query);
@@ -703,6 +704,9 @@ int main(int argc, char **argv) {
         ++neValues;
 
       delete command;
+      for (const auto *decl : decls) {
+        delete decl;
+      }
       delete parser;
     }
 
