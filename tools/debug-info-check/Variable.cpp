@@ -60,9 +60,29 @@ void autoTruncate(ExprBuilder *builder, ref<Expr> &arg1, ref<Expr> &arg2) {
   llvm_unreachable("Unexpected narrowing case");
 }
 
+void truncateToVariable(ExprBuilder *builder, const DILocalVariable *variable,
+                        ref<Expr> &value) {
+  // Apply same implicit truncation debuggers use if source variable is smaller
+  // width than the current value.
+  const auto &varWidth = variable->getSizeInBits().getValue();
+  assert(value->getWidth() >= varWidth && "Value smaller than variable width");
+  if (varWidth < value->getWidth()) {
+    if (auto constantValue = dyn_cast<klee::ConstantExpr>(value)) {
+      // Truncate constants directly
+      value = constantValue->Extract(0, varWidth);
+      return;
+    }
+    ref<Expr> width = klee::ConstantExpr::alloc(0, varWidth);
+    autoTruncate(builder, value, width);
+  }
+}
+
 ref<Expr> Assignment::evaluate() {
   if (evaluatedSymbolicValue)
     return evaluatedSymbolicValue;
+
+  const auto *variable = varIntrinsic->getVariable();
+  ExprBuilder *builder = createDefaultExprBuilder();
 
   // Empty expression
   const auto *expr = varIntrinsic->getExpression();
@@ -72,6 +92,7 @@ ref<Expr> Assignment::evaluate() {
     assert(producedSymbolicValues.size() == 1 &&
            "Symbolic value missing for producer");
     evaluatedSymbolicValue = producedSymbolicValues[0];
+    truncateToVariable(builder, variable, evaluatedSymbolicValue);
     return evaluatedSymbolicValue;
   }
 
@@ -91,7 +112,6 @@ ref<Expr> Assignment::evaluate() {
     KLEE_DEBUG(dbgs() << "Pushed initial value onto stack: "
                       << producedSymbolicValues[0] << "\n");
   }
-  ExprBuilder *builder = createDefaultExprBuilder();
 
   // Only value expressions are supported, so all non-empty expressions should
   // be terminated with the stack value operation.
@@ -186,17 +206,9 @@ ref<Expr> Assignment::evaluate() {
     }
   }
 
-  // Apply same implicit truncation debuggers use if source variable is smaller
-  // width than the current value.
-  const auto *variable = varIntrinsic->getVariable();
-  const auto &varWidth = variable->getSizeInBits().getValue();
-  assert(stack.back()->getWidth() >= varWidth &&
-         "Expression result smaller than variable width");
-  if (varWidth < stack.back()->getWidth()) {
-    stack.back() = builder->Extract(stack.back(), 0, varWidth);
-  }
-
   evaluatedSymbolicValue = stack.back();
+  truncateToVariable(builder, variable, evaluatedSymbolicValue);
+
   KLEE_DEBUG(dbgs() << "Result: " << evaluatedSymbolicValue << "\n");
 
   assert(stack.size() == 1 && "Expression stack has unexpected size");
