@@ -85,8 +85,9 @@ extern cl::opt<bool> OnlyUncoveredBranchTargets;
 
 bool addAssignment(const InstructionInfoTable &instrInfo,
                    const DbgVariableIntrinsic *varIntrinsic,
-                   const Variable &variable, const StringRef producerKind,
-                   const Values &&producers, VToAs &varToAs) {
+                   const Variable &variable, const StringRef userKind,
+                   const llvm::Instruction *user, const Values &&producers,
+                   VToAs &varToAs) {
   if (producers.empty())
     return true;
   for (const auto *producer : producers) {
@@ -95,7 +96,7 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
       return true;
   }
 
-  KLEE_DEBUG(dbgs() << producerKind << " `" << variable.name << "`, ");
+  KLEE_DEBUG(dbgs() << userKind << " `" << variable.name << "`, ");
   if (producers.size() > 1)
     KLEE_DEBUG(dbgs() << "[ ");
   for (const auto *producer : producers) {
@@ -203,6 +204,9 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
 
   Assignment assignment = {};
 
+  if (const auto debugLoc = user->getDebugLoc()) {
+    assignment.startLine = debugLoc.getLine();
+  }
   // When there are multiple producers, consider the start line of the
   // assignment to the be the max of source line numbers from all producers
   // (since the assignment is not observable until all inputs are live).
@@ -224,22 +228,17 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
     assignment.startLine = variable.declLine;
   }
   if (!assignment.startLine) {
-    outs() << "❌ " << producerKind << " `" << variable.name << "`";
+    outs() << "❌ " << userKind << " `" << variable.name << "`";
     outs() << ": missing line info\n";
     return false;
   }
   assert(assignment.startLine >= variable.declLine &&
          "Assignment starts before declaration");
 
-  // TODO: Should `producer` and `varIntrinsic` be merged somehow...?
-  if (producers.size() == 1 && isa<Instruction>(producers[0])) {
-    const auto *producerInstruction = cast<Instruction>(producers[0]);
-    assignment.asmLine = instrInfo.getInfo(*producerInstruction).assemblyLine;
-  } else {
-    assignment.asmLine = instrInfo.getInfo(*varIntrinsic).assemblyLine;
-  }
-  assignment.producers = std::move(producers);
   assignment.varIntrinsic = varIntrinsic;
+  assignment.producers = std::move(producers);
+  assignment.user = user;
+  assignment.asmLine = instrInfo.getInfo(*user).assemblyLine;
 
   KLEE_DEBUG(dbgs() << "  Added assignment starting at src line "
                     << assignment.startLine << "\n");
@@ -285,9 +284,10 @@ bool gatherAssignments(const StringRef moduleKind,
       return summary;
     for (const auto *addressUse : address->users()) {
       if (const auto *storeInstruction = dyn_cast<StoreInst>(addressUse)) {
-        const Values producers(1, storeInstruction);
-        summary &= addAssignment(instrInfo, declareIntrinsic, variable,
-                                 "Store to", std::move(producers), varToAs);
+        const Values producers(1, storeInstruction->getValueOperand());
+        summary &=
+            addAssignment(instrInfo, declareIntrinsic, variable, "Store to",
+                          storeInstruction, std::move(producers), varToAs);
       }
     }
   } else if (const auto *valueIntrinsic =
@@ -301,7 +301,7 @@ bool gatherAssignments(const StringRef moduleKind,
     const Values producers(valueIntrinsic->getValues());
     summary &=
         addAssignment(instrInfo, valueIntrinsic, variable, "Value produced for",
-                      std::move(producers), varToAs);
+                      valueIntrinsic, std::move(producers), varToAs);
   } else {
     llvm_unreachable("Unexpected dbg intrinsic");
   }

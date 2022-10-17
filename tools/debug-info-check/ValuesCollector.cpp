@@ -60,7 +60,7 @@ public:
   void incPathsExplored(std::uint32_t num = 1) override {}
 
   void visitBeforeExecution(ExecutionState &state, KInstruction *ki) override;
-  void recordValue(const Value *filter, const Value *producer,
+  void recordValue(const Instruction *user, const Value *producer,
                    ref<Expr> symbolicValue);
 
   void processTestCase(const ExecutionState &state, const char *err,
@@ -97,8 +97,9 @@ void VCHandler::visitBeforeExecution(ExecutionState &state, KInstruction *ki) {
     return;
 
   if (const auto *storeInstruction = dyn_cast<StoreInst>(instruction)) {
+    const Value *producer = storeInstruction->getValueOperand();
     ref<Expr> symbolicValue = interpreter->getOperandCell(state, ki, 0).value;
-    recordValue(storeInstruction, storeInstruction, symbolicValue);
+    recordValue(storeInstruction, producer, symbolicValue);
   } else if (const auto *valueIntrinsic = dyn_cast<DbgValueInst>(instruction)) {
     for (size_t i = 0, e = valueIntrinsic->getNumVariableLocationOps(); i < e;
          ++i) {
@@ -112,29 +113,27 @@ void VCHandler::visitBeforeExecution(ExecutionState &state, KInstruction *ki) {
   }
 }
 
-void VCHandler::recordValue(const Value *filter, const Value *producer,
+void VCHandler::recordValue(const Instruction *user, const Value *producer,
                             ref<Expr> symbolicValue) {
-  assert(filter && "Assignment filter missing");
-  // We currently check filters against producers (as a way of matching stores).
+  assert(user && "Assignment user missing");
+  // We currently filter assignments by user (as a way of matching stores).
   // This works okay for stores since they are `void` type (have no IR result),
   // so they can't be used as a direct input elsewhere.
   // TODO: Revisit this later, as we may in fact want to _take advantage_ of
   // non-void producers matching multiple assignments as some kind of
   // performance optimisation.
-  assert(filter->getType()->isVoidTy() &&
-         "Assignment filter unexpectedly has a result");
+  assert(user->getType()->isVoidTy() &&
+         "Assignment user unexpectedly has a result");
   assert(producer && "Symbolic value producer missing");
   if (!symbolicValue)
     return;
 
-  // Look for assignments matching the filter value
-  // TODO: Gather all producers up front first for faster filtering...?
+  // Look for assignments matching the user
+  // TODO: Gather all users up front first for faster filtering...?
   const auto matchingAssignments =
       make_filter_range(varsAssignments, [&](VA &pair) {
         const auto &assignment = pair.second;
-        // TODO: Re-think producer vs. intrinsic structure...?
-        return assignment.producers[0] == filter ||
-               assignment.varIntrinsic == filter;
+        return assignment.user == user;
       });
 
   for (VA &pair : matchingAssignments) {

@@ -20,6 +20,7 @@ class Expr;
 namespace llvm {
 class DbgVariableIntrinsic;
 class DILocalVariable;
+class Instruction;
 class Value;
 } // namespace llvm
 
@@ -77,9 +78,13 @@ struct Assignment {
 
   // Not checked during comparison
 
-  Values producers;
+  // dbg.declare or dbg.value intrinsic
   const llvm::DbgVariableIntrinsic *varIntrinsic;
-  // Producer or variable intrinsic assembly line
+  // Input values used to compute this assignment
+  Values producers;
+  // Store instruction or dbg.value intrinsic that uses the producers
+  const llvm::Instruction *user;
+  // User assembly line
   // Used for relative ordering with the same start line
   unsigned int asmLine;
   // ref<Expr> cannot be `const` if we want `std::swap` to work...
