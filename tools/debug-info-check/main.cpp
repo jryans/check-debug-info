@@ -19,6 +19,7 @@
 #include "klee/Support/PrintVersion.h"
 #include "klee/Support/RuntimeHandling.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -360,32 +361,19 @@ void generateAssignmentIDs(VariablesSet &variables, VToAs &varToAs) {
   }
 }
 
-SmallString<128> createOutputDir(StringRef moduleFile) {
+SmallString<128> createOutputDir(StringRef moduleFile, StringRef functionName) {
   SmallString<128> outputDir(moduleFile);
   sys::path::remove_filename(outputDir);
-  sys::path::append(outputDir, "debug-info-values");
+  sys::path::append(outputDir, "debug-info-values", functionName);
   sys::fs::remove_directories(outputDir);
-  if (auto e = sys::fs::create_directory(outputDir)) {
+  if (auto e = sys::fs::create_directories(outputDir)) {
     klee_error("Unable to create output directory `%s`: %s", outputDir.c_str(),
                e.message().c_str());
   }
   return outputDir;
 }
 
-int main(int argc, char **argv) {
-  InitLLVM x(argc, argv);
-
-  cl::SetVersionPrinter(printVersion);
-  KCommandLine::HideOptions(cl::getGeneralCategory());
-
-  // Use adjusted symbolic defaults
-  MaxForks.setInitialValue(4);
-  DebugExecutionTrace.setInitialValue(true);
-  OnlyUncoveredBranchTargets.setInitialValue(true);
-
-  cl::ParseCommandLineOptions(argc, argv, "Debug info consistency check\n");
-
-  LLVMContext ctx;
+SmallVector<std::unique_ptr<Module>, 2> loadModules(LLVMContext &ctx) {
   std::string error;
 
   std::vector<std::unique_ptr<Module>> beforeModules;
@@ -400,75 +388,51 @@ int main(int argc, char **argv) {
                afterFile.c_str(), error.c_str());
   }
 
-  bool summary = true;
-
-  outs() << "Checking " << beforeFile << " and " << afterFile
-         << " for debug info consistency…\n\n";
-
-  outs() << "## Modules\n\n";
-
-  {
-    // This is a fairly silly check, since *.ll and *.bc files can only contain
-    // 1 module. While KLEE does support loading archives (*.a) as well, we
-    // don't plan to support that case over here for now.
-    bool match = beforeModules.size() == afterModules.size();
-    summary &= match;
-    outs() << (match ? "✅ " : "❌ ");
-    outs() << beforeModules.size() << " before module(s), ";
-    outs() << afterModules.size() << " after module(s)\n";
-  }
-
+  // This is a fairly silly check, since *.ll and *.bc files can only contain 1
+  // module. While KLEE does support loading archives (*.a) as well, we don't
+  // plan to support that case over here for now.
   if (beforeModules.size() > 1 || afterModules.size() > 1) {
     klee_error("This tool does not support programs with multiple modules.");
   }
 
-  outs() << "\n"; // ## Modules
+  SmallVector<std::unique_ptr<Module>, 2> bothModules;
+  bothModules.push_back(std::move(beforeModules[0]));
+  bothModules.push_back(std::move(afterModules[0]));
+  return bothModules;
+}
 
-  auto &beforeModule = beforeModules[0];
-  auto &afterModule = afterModules[0];
+bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
+                   StringRef functionName) {
+  bool summary = true;
 
-  outs() << "## Functions\n\n";
+  // KLEE's interpreter currently deletes the modules after running, so we load
+  // them here for each run.
+  // TODO: Investigate ways to reuse modules
+  auto bothModules = loadModules(ctx);
+  auto &beforeModule = bothModules[0];
+  auto &afterModule = bothModules[1];
 
-  const auto &beforeFunctions = beforeModule->getFunctionList();
-  const auto &afterFunctions = afterModule->getFunctionList();
+  outs() << "## Function `" << functionName << "`\n\n";
 
-  const auto beforeDefinitionCount = count_if(
-      beforeFunctions, [](const Function &F) { return !F.isDeclaration(); });
-  const auto afterDefinitionCount = count_if(
-      afterFunctions, [](const Function &F) { return !F.isDeclaration(); });
+  const auto beforeDefinitionPtr = beforeModule->getFunction(functionName);
+  const auto afterDefinitionPtr = afterModule->getFunction(functionName);
 
-  {
-    bool match = beforeDefinitionCount == afterDefinitionCount;
-    summary &= match;
-    outs() << (match ? "✅ " : "❌ ");
-    outs() << beforeDefinitionCount << " before defined functions(s), ";
-    outs() << afterDefinitionCount << " after defined functions(s)\n";
+  if (!beforeDefinitionPtr) {
+    outs() << "❌ Before function not found\n";
+    return false;
   }
-
-  if (!beforeDefinitionCount || !afterDefinitionCount) {
-    klee_error("Both programs must have at least 1 function");
+  if (!afterDefinitionPtr) {
+    outs() << "❌ After function not found\n";
+    return false;
   }
+  outs() << "✅ Before and after function names match\n";
 
-  if (beforeDefinitionCount > 1 || afterDefinitionCount > 1) {
-    outs() << "🔔 At the moment, only the first function is checked\n";
-  }
+  const auto &beforeDefinition = *beforeDefinitionPtr;
+  const auto &afterDefinition = *afterDefinitionPtr;
 
-  const auto &beforeDefinition = *find_if(
-      beforeFunctions, [](const Function &F) { return !F.isDeclaration(); });
-  const auto &afterDefinition = *find_if(
-      afterFunctions, [](const Function &F) { return !F.isDeclaration(); });
+  outs() << "\n"; // ## Function
 
-  {
-    bool match = beforeDefinition.getName() == afterDefinition.getName();
-    summary &= match;
-    outs() << (match ? "✅ " : "❌ ");
-    outs() << "First before function: `" << beforeDefinition.getName() << "`, ";
-    outs() << "first after function: `" << afterDefinition.getName() << "`\n";
-  }
-
-  outs() << "\n"; // ## Functions
-
-  outs() << "## Variables\n\n";
+  outs() << "### Variables\n\n";
 
   VariablesSet beforeVariables;
   VariablesSet afterVariables;
@@ -500,9 +464,9 @@ int main(int argc, char **argv) {
     outs() << mismatched.size() << " mismatched\n";
   }
 
-  outs() << "\n"; // ## Variables
+  outs() << "\n"; // ### Variables
 
-  outs() << "## Assignments\n\n";
+  outs() << "### Assignments\n\n";
 
   VAs beforeFlatVAs;
   for (const auto &varAssignments : beforeVToAs) {
@@ -557,24 +521,19 @@ int main(int argc, char **argv) {
     }
   }
 
-  outs() << "\n"; // ## Assignments
+  outs() << "\n"; // ### Assignments
 
   if (!summary) {
     outs() << "🔔 Some assignment checks failed, "
            << "value checks may be nonsensical…\n\n";
   }
 
-  outs() << "## Symbolic values\n\n";
-
-  // TODO: Move this closer to actual JIT usage...
-  InitializeNativeTarget();
-
-  std::string runtimeDir = getRuntimeLibraryPath(argv[0]);
+  outs() << "### Symbolic values\n\n";
 
   // Collect symbolic values for before module
   std::unique_ptr<Interpreter> beforeInterpreter;
   {
-    SmallString<128> outputDir = createOutputDir(beforeFile);
+    SmallString<128> outputDir = createOutputDir(beforeFile, functionName);
     beforeInterpreter =
         collectValues(runtimeDir, std::move(beforeModule),
                       beforeDefinition.getName(), outputDir, beforeFlatVAs);
@@ -583,7 +542,7 @@ int main(int argc, char **argv) {
   // Collect symbolic values for after module
   std::unique_ptr<Interpreter> afterInterpreter;
   {
-    SmallString<128> outputDir = createOutputDir(afterFile);
+    SmallString<128> outputDir = createOutputDir(afterFile, functionName);
     afterInterpreter =
         collectValues(runtimeDir, std::move(afterModule),
                       afterDefinition.getName(), outputDir, afterFlatVAs);
@@ -726,7 +685,70 @@ int main(int argc, char **argv) {
     outs() << neValues << " mismatched symbolic values\n";
   }
 
-  outs() << "\n"; // ## Symbolic values
+  outs() << "\n"; // ### Symbolic values
+
+  return summary;
+}
+
+int main(int argc, char **argv) {
+  InitLLVM x(argc, argv);
+
+  cl::SetVersionPrinter(printVersion);
+  KCommandLine::HideOptions(cl::getGeneralCategory());
+
+  // Use adjusted symbolic defaults
+  MaxForks.setInitialValue(4);
+  DebugExecutionTrace.setInitialValue(true);
+  OnlyUncoveredBranchTargets.setInitialValue(true);
+
+  cl::ParseCommandLineOptions(argc, argv, "Debug info consistency check\n");
+
+  bool summary = true;
+
+  outs() << "Checking " << beforeFile << " and " << afterFile
+         << " for debug info consistency…\n\n";
+
+  LLVMContext ctx;
+  auto bothModules = loadModules(ctx);
+  auto &beforeModule = bothModules[0];
+  auto &afterModule = bothModules[1];
+
+  outs() << "## Functions\n\n";
+
+  const auto &beforeFunctions = beforeModule->getFunctionList();
+  const auto &afterFunctions = afterModule->getFunctionList();
+
+  auto functionFilter = [](const Function &f) {
+    return !f.isDeclaration() && !f.getName().startswith("klee_") &&
+           !f.getName().equals("main");
+  };
+  const auto beforeDefinitionCount = count_if(beforeFunctions, functionFilter);
+  const auto afterDefinitionCount = count_if(afterFunctions, functionFilter);
+
+  if (!beforeDefinitionCount || !afterDefinitionCount) {
+    klee_error("Both programs must have at least 1 function");
+  }
+
+  {
+    bool match = beforeDefinitionCount == afterDefinitionCount;
+    summary &= match;
+    outs() << (match ? "✅ " : "❌ ");
+    outs() << beforeDefinitionCount << " before defined functions(s), ";
+    outs() << afterDefinitionCount << " after defined functions(s)\n";
+  }
+
+  outs() << "\n"; // ## Functions
+
+  // TODO: Move this closer to actual JIT usage...
+  InitializeNativeTarget();
+
+  std::string runtimeDir = getRuntimeLibraryPath(argv[0]);
+
+  const auto beforeDefinitions =
+      make_filter_range(beforeFunctions, functionFilter);
+  for (const Function &beforeDefinition : beforeDefinitions) {
+    summary &= checkFunction(ctx, runtimeDir, beforeDefinition.getName());
+  }
 
   if (summary) {
     outs() << "🎉 All consistency checks passed\n";
