@@ -729,12 +729,6 @@ void StatsTracker::writeIStats() {
 
 ///
 
-typedef std::map<Instruction*, std::vector<Function*> > calltargets_ty;
-
-static calltargets_ty callTargets;
-static std::map<Function*, std::vector<Instruction*> > functionCallers;
-static std::map<Function*, unsigned> functionShortestPath;
-
 static std::vector<Instruction*> getSuccs(Instruction *i) {
   BasicBlock *bb = i->getParent();
   std::vector<Instruction*> res;
@@ -774,12 +768,11 @@ uint64_t klee::computeMinDistToUncovered(const KInstruction *ki,
 void StatsTracker::computeReachableUncovered() {
   KModule *km = executor.kmodule.get();
   const auto m = km->module.get();
-  static bool init = true;
   const InstructionInfoTable &infos = *km->infos;
   StatisticManager &sm = *theStatisticManager;
-  
-  if (init) {
-    init = false;
+
+  if (reachabilityInit) {
+    reachabilityInit = false;
 
     // Compute call targets. It would be nice to use alias information
     // instead of assuming all indirect calls hit all escaping

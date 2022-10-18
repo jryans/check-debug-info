@@ -13,9 +13,11 @@
 #include "CallPathManager.h"
 #include "klee/System/Time.h"
 
+#include <map>
 #include <memory>
 #include <set>
 #include <sqlite3.h>
+#include <vector>
 
 namespace llvm {
   class BranchInst;
@@ -54,6 +56,13 @@ namespace klee {
     CallPathManager callPathManager;
 
     bool updateMinDistToUncovered;
+    bool reachabilityInit = true;
+    typedef std::map<llvm::Instruction *, std::vector<llvm::Function *>>
+        calltargets_ty;
+    calltargets_ty callTargets;
+    std::map<llvm::Function *, std::vector<llvm::Instruction *>>
+        functionCallers;
+    std::map<llvm::Function *, unsigned> functionShortestPath;
 
   public:
     static bool useStatistics();
