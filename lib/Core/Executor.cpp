@@ -2002,6 +2002,43 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
       transferToBasicBlock(ii->getNormalDest(), i->getParent(), state);
     }
   } else {
+    // TODO: Should this be another interpreter handler as well...?
+    // TODO: Work out how to assume KLEE checks pass, then remove the function
+    // name check here
+    if (interpreterOpts.IndependentFunctions &&
+        !f->getName().startswith("klee_")) {
+      if (DebugExecutionTrace)
+        *debugExecTraceFile
+            << "Function independent mode active, skipping call to `"
+            << f->getName() << "`…\n";
+
+      // If there's a return value, make it symbolic
+      Type *returnType = f->getReturnType();
+      if (!returnType->isVoidTy()) {
+        // Build a symbolic return value
+        const ObjectState *argState =
+            buildSymbolicValue(state, f, returnType, f->getName());
+        // Bind return value as result of load from new symbolic memory
+        bindLocal(ki, state, argState->read(0, argState->size * 8));
+      }
+
+      // TODO: Support variable number of arguments
+      assert(!f->isVarArg() &&
+             "Function to skip has variable number of arguments");
+
+      // TODO: If there are non-const pointer arguments, make them symbolic
+      for (unsigned k = 0, numArgs = f->arg_size(); k < numArgs; ++k) {
+        const Argument *arg = f->getArg(k);
+        assert(!arg->getType()->isPointerTy() &&
+               "Function to skip has pointer argument");
+      }
+
+      // TODO: Check for global variable uses...?
+
+      // Stay in the independent function (do not follow the call)
+      return;
+    }
+
     // Check if maximum stack size was reached.
     // We currently only count the number of stack frames
     if (RuntimeMaxStackFrames && state.stack.size() > RuntimeMaxStackFrames) {
