@@ -89,9 +89,21 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
                    const Variable &variable, const StringRef userKind,
                    const llvm::Instruction *user, const Values &&producers,
                    VToAs &varToAs) {
-  if (producers.empty())
-    return true;
+  if (producers.empty()) {
+    outs() << "❌ Variable intrinsic without inputs, ";
+    outs() << "asm line " << instrInfo.getInfo(*varIntrinsic).assemblyLine
+           << "\n";
+    outs() << printInstruction(*varIntrinsic) << "\n";
+    return false;
+  }
   for (const auto *producer : producers) {
+    if (!producer) {
+      outs() << "❌ Variable intrinsic with empty input, ";
+      outs() << "asm line " << instrInfo.getInfo(*varIntrinsic).assemblyLine
+             << "\n";
+      outs() << printInstruction(*varIntrinsic) << "\n";
+      return false;
+    }
     if (!isa<Instruction>(*producer) && !isa<Argument>(*producer) &&
         !isa<ConstantInt>(*producer))
       return true;
@@ -328,7 +340,8 @@ bool gatherAssignments(const StringRef moduleKind, const Function &function,
 
   for (const auto &instruction : instructions(function)) {
     if (const auto *valueIntrinsic = dyn_cast<DbgValueInst>(&instruction)) {
-      if (const auto *phiNode = dyn_cast<PHINode>(valueIntrinsic->getValue())) {
+      if (const auto *phiNode =
+              dyn_cast_or_null<PHINode>(valueIntrinsic->getValue())) {
         // Processing phi nodes requires examining other assignments throughout
         // the program, so stash these for now and revisit them again at the
         // end.

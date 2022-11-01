@@ -98,12 +98,16 @@ void VCHandler::visitBeforeExecution(ExecutionState &state, KInstruction *ki) {
 
   if (const auto *storeInstruction = dyn_cast<StoreInst>(instruction)) {
     const Value *producer = storeInstruction->getValueOperand();
+    if (!producer)
+      return;
     ref<Expr> symbolicValue = interpreter->getOperandCell(state, ki, 0).value;
     recordValue(storeInstruction, producer, symbolicValue);
   } else if (const auto *valueIntrinsic = dyn_cast<DbgValueInst>(instruction)) {
     for (size_t i = 0, e = valueIntrinsic->getNumVariableLocationOps(); i < e;
          ++i) {
       const Value *producer = valueIntrinsic->getValue(i);
+      if (!producer)
+        return;
       // Calls (incl. intrinsics) store the call target as operand 0, so their
       // real operands are shifted over by 1.
       ref<Expr> symbolicValue =
