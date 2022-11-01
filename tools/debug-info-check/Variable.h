@@ -37,6 +37,8 @@ struct Variable {
     return std::tie(name, declLine) == std::tie(other.name, other.declLine);
   }
 
+  bool operator!=(const Variable &other) const { return !(*this == other); }
+
   bool operator<(const Variable &other) const {
     return std::tie(name, declLine) < std::tie(other.name, other.declLine);
   }

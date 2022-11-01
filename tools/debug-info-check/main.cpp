@@ -573,7 +573,11 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
          i < e; ++i) {
       auto &before = beforeFlatVAs[i];
       auto &after = afterFlatVAs[i];
-      assert(before.first == after.first && "Variables don't match");
+      if (before.first != after.first) {
+        outs() << "🔔 Before variable `" << before.first.name
+               << "` doesn't match after variable `" << after.first.name
+               << "`\n";
+      }
       const Variable &variable = before.first;
       Assignment &beforeAssn = before.second;
       Assignment &afterAssn = after.second;
