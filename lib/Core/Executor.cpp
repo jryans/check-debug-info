@@ -4365,6 +4365,16 @@ void Executor::executeMemoryOperation(ExecutionState &state,
                                       ref<Expr> address,
                                       ref<Expr> value /* undef if read */,
                                       KInstruction *target /* undef if write */) {
+  if (!isWrite && target->inst->isVolatile()) {
+    LoadInst *inst = cast<LoadInst>(target->inst);
+    // For volatile loads, build a symbolic value
+    const ObjectState *argState = buildSymbolicValue(
+        state, inst, inst->getType(), inst->getPointerOperand()->getName());
+    // Bind value as result of load from new symbolic memory
+    bindLocal(target, state, argState->read(0, argState->size * 8));
+    return;
+  }
+
   Expr::Width type = (isWrite ? value->getWidth() : 
                      getWidthForLLVMType(target->inst->getType()));
   unsigned bytes = Expr::getMinBytesForWidth(type);
@@ -4585,6 +4595,7 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
                         << valueName << " (" << sizeBytes * 8 << "b)…\n";
 
   // Create object state instance from the new memory
+  assert(!valueName.str().empty() && "Unexpected empty symbolic value name");
   unsigned id = 0;
   std::string uniqueName = valueName.str();
   while (!state.arrayNames.insert(uniqueName).second) {
