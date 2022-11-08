@@ -13,6 +13,7 @@
 
 #include <map>
 #include <tuple>
+#include <utility>
 
 namespace klee {
 class Expr;
@@ -76,6 +77,7 @@ struct Assignment {
   // TODO: Pointer to the associated `Variable`...?
 
   unsigned int startLine;
+  unsigned int startColumn;
   // IDs are generated from `asmLine` relative ordering to ease comparison
   // TODO: Maybe remove this now that we have improved matching...?
   unsigned int id;
@@ -98,13 +100,15 @@ struct Assignment {
   klee::ref<klee::Expr> evaluatedSymbolicValue;
 
   bool operator==(const Assignment &other) const {
-    return std::tie(startLine, id) == std::tie(other.startLine, other.id);
+    return std::tie(startLine, startColumn, id) ==
+           std::tie(other.startLine, other.startColumn, other.id);
   }
 
   bool operator!=(const Assignment &other) const { return !(*this == other); }
 
   bool operator<(const Assignment &other) const {
-    return std::tie(startLine, id) < std::tie(other.startLine, other.id);
+    return std::tie(startLine, startColumn, id) <
+           std::tie(other.startLine, other.startColumn, other.id);
   }
 
   bool isValueConsistent(const Variable &var, const llvm::Value *other) const;
@@ -118,6 +122,7 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
                                      const Assignment &assignment) {
   out << assignment.id << ", ";
   out << "src line " << assignment.startLine;
+  out << ", column " << assignment.startColumn;
   return out;
 }
 
@@ -126,8 +131,9 @@ using VariablesSet = llvm::SmallSet<Variable, 8>;
 using Assignments = llvm::SmallVector<Assignment>;
 using VToAs = std::map<Variable, Assignments>;
 
-using RangeToA = llvm::IntervalMap<unsigned int, Assignment *, 8,
-                                   llvm::IntervalMapHalfOpenInfo<unsigned int>>;
+using Location = std::pair<unsigned int, unsigned int>;
+using RangeToA = llvm::IntervalMap<Location, Assignment *, 8,
+                                   llvm::IntervalMapHalfOpenInfo<Location>>;
 using VToRangeToA = std::map<Variable, RangeToA>;
 
 using VA = std::pair<Variable, Assignment *>;

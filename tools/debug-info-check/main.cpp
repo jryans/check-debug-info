@@ -219,6 +219,7 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
 
   if (const auto debugLoc = user->getDebugLoc()) {
     assignment.startLine = debugLoc.getLine();
+    assignment.startColumn = debugLoc.getCol();
   }
   // When there are multiple producers, consider the start line of the
   // assignment to the be the max of source line numbers from all producers
@@ -226,9 +227,12 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
   for (const auto *producer : producers) {
     if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
       const auto debugLoc = producerInstruction->getDebugLoc();
-      if (debugLoc)
+      if (debugLoc) {
         assignment.startLine =
             std::max(assignment.startLine, debugLoc.getLine());
+        assignment.startColumn =
+            std::max(assignment.startColumn, debugLoc.getCol());
+      }
     } else if (const auto *producerArgument = dyn_cast<Argument>(producer)) {
       // Arguments may be spread over multiple lines, so use the declaration to
       // get the most precise line info.
@@ -254,7 +258,8 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
   assignment.asmLine = instrInfo.getInfo(*user).assemblyLine;
 
   KLEE_DEBUG(dbgs() << "  Added assignment starting at src line "
-                    << assignment.startLine << "\n");
+                    << assignment.startLine << ", column "
+                    << assignment.startColumn << "\n");
   assignments.push_back(std::move(assignment));
   return true;
 }
@@ -358,8 +363,8 @@ void generateAssignmentIDs(VariablesSet &variables, VToAs &varToAs) {
   for (const auto &variable : variables) {
     auto &assignments = varToAs[variable];
     sort(assignments, [](const Assignment &left, const Assignment &right) {
-      return std::tie(left.startLine, left.asmLine) <
-             std::tie(right.startLine, right.asmLine);
+      return std::tie(left.startLine, left.startColumn, left.asmLine) <
+             std::tie(right.startLine, right.startColumn, right.asmLine);
     });
     for (size_t i = 0, e = assignments.size(); i < e; ++i) {
       assignments[i].id = i;
@@ -373,18 +378,25 @@ void buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
   for (const auto &variable : variables) {
     auto &assignments = varToAs[variable];
     sort(assignments, [](const Assignment &left, const Assignment &right) {
-      return std::tie(left.startLine, left.asmLine) <
-             std::tie(right.startLine, right.asmLine);
+      return std::tie(left.startLine, left.startColumn, left.asmLine) <
+             std::tie(right.startLine, right.startColumn, right.asmLine);
     });
     for (size_t i = 0, e = assignments.size(); i < e; ++i) {
       auto &assignment = assignments[i];
 
-      unsigned int start = assignment.startLine;
-      unsigned int end;
-      if ((i + 1) < e)
-        end = assignments[i + 1].startLine;
-      else
-        end = UINT_MAX;
+      unsigned int startLine = assignment.startLine;
+      unsigned int startColumn = assignment.startColumn;
+      unsigned int endLine, endColumn;
+      if ((i + 1) < e) {
+        endLine = assignments[i + 1].startLine;
+        endColumn = assignments[i + 1].startColumn;
+      } else {
+        endLine = UINT_MAX;
+        endColumn = UINT_MAX;
+      }
+
+      Location start = {startLine, startColumn};
+      Location end = {endLine, endColumn};
 
       auto &varRange =
           varToRangeToA
@@ -517,7 +529,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   for (auto &varAssignments : beforeVToAs) {
     const auto &variable = varAssignments.first;
     for (auto &assn : varAssignments.second) {
-      beforeFlatVAs.push_back(std::make_pair(variable, &assn));
+      beforeFlatVAs.push_back({variable, &assn});
     }
   }
   sort(beforeFlatVAs);
@@ -526,7 +538,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   for (auto &varAssignments : afterVToAs) {
     const auto &variable = varAssignments.first;
     for (auto &assn : varAssignments.second) {
-      afterFlatVAs.push_back(std::make_pair(variable, &assn));
+      afterFlatVAs.push_back({variable, &assn});
     }
   }
   sort(afterFlatVAs);
@@ -551,14 +563,15 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
       const auto &beforeRange = beforeRangeLookup->second;
       const auto &afterRange = afterRangeLookup->second;
 
-      assert(beforeRange.stop() == UINT_MAX &&
+      assert(beforeRange.stop() == std::make_pair(UINT_MAX, UINT_MAX) &&
              "Before live range terminates early");
-      assert(afterRange.stop() == UINT_MAX &&
+      assert(afterRange.stop() == std::make_pair(UINT_MAX, UINT_MAX) &&
              "After live range terminates early");
       if (beforeRange.start() != afterRange.start()) {
         outs() << "❌ Live ranges for `" << variable.name << "` don't match: ["
-               << beforeRange.start() << ",∞) vs. [" << afterRange.start()
-               << ",∞)\n";
+               << beforeRange.start().first << "." << beforeRange.start().second
+               << ",∞) vs. [" << afterRange.start().first << "."
+               << afterRange.start().second << ",∞)\n";
         ++uncovered;
         continue;
       }
@@ -617,10 +630,12 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
       }
       Assignment *afterAssn = after.second;
       auto &beforeRange = beforeVToRangeToA.at(variable);
-      auto beforeAssnLookup = beforeRange.find(afterAssn->startLine);
+      auto beforeAssnLookup =
+          beforeRange.find({afterAssn->startLine, afterAssn->startColumn});
       if (beforeAssnLookup == beforeRange.end()) {
         outs() << "❌ Before live range for `" << variable.name
-               << "` at src line " << afterAssn->startLine << " not found\n";
+               << "` at src line " << afterAssn->startLine << ", column "
+               << afterAssn->startColumn << " not found\n";
         ++neValues;
         continue;
       }
