@@ -698,10 +698,12 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
       // TODO: Deduplicate the data structures directly
       std::string queryStr;
       raw_string_ostream queryStream(queryStr);
-      // TODO: Check whether the after expression uses some unexpected
-      // additional symbolic variable
       std::vector<const Array *> symbolicArrays;
       findSymbolicObjects(beforeSymValue, symbolicArrays);
+      // TODO: Perhaps merge before and after arrays properly
+      if (symbolicArrays.empty()) {
+        findSymbolicObjects(afterSymValue, symbolicArrays);
+      }
       for (const auto *array : symbolicArrays) {
         queryStream << "array " << array->getName();
         queryStream << "[" << array->getSize() << "]";
@@ -709,6 +711,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
         queryStream << " : w32 -> w8 = symbolic\n";
       }
       queryStream << "(query [] " << expr << ")";
+      KLEE_DEBUG(dbgs() << "Query to parse\n" << queryStream.str() << "\n");
 
       const auto queryMB = MemoryBuffer::getMemBuffer(queryStream.str());
       auto *parser =
