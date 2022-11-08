@@ -740,7 +740,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
         klee_error("Solver unable to process query");
 
       if (!result) {
-        outs() << "Symbolic values don't match:\n";
+        outs() << "❌ Symbolic values don't match:\n";
         outs() << queryCommand->Query << "\n";
       }
 
