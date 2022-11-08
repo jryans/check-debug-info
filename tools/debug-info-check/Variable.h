@@ -5,6 +5,7 @@
 #include "klee/Expr/Expr.h"
 #include "klee/Module/Printing.h"
 
+#include "llvm/ADT/IntervalMap.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
@@ -76,6 +77,7 @@ struct Assignment {
 
   unsigned int startLine;
   // IDs are generated from `asmLine` relative ordering to ease comparison
+  // TODO: Maybe remove this now that we have improved matching...?
   unsigned int id;
 
   // Not checked during comparison
@@ -122,10 +124,13 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
 using VariablesSet = llvm::SmallSet<Variable, 8>;
 
 using Assignments = llvm::SmallVector<Assignment>;
-// There might be a good match for this in LLVM's data structures, but wasn't
-// quite sure...
 using VToAs = std::map<Variable, Assignments>;
-using VA = std::pair<Variable, Assignment>;
+
+using RangeToA = llvm::IntervalMap<unsigned int, Assignment *, 8,
+                                   llvm::IntervalMapHalfOpenInfo<unsigned int>>;
+using VToRangeToA = std::map<Variable, RangeToA>;
+
+using VA = std::pair<Variable, Assignment *>;
 using VAs = llvm::SmallVector<VA>;
 
 #endif

@@ -136,27 +136,28 @@ void VCHandler::recordValue(const Instruction *user, const Value *producer,
   // TODO: Gather all users up front first for faster filtering...?
   const auto matchingAssignments =
       make_filter_range(varsAssignments, [&](VA &pair) {
-        const auto &assignment = pair.second;
-        return assignment.user == user;
+        const auto *assignment = pair.second;
+        return assignment->user == user;
       });
 
   for (VA &pair : matchingAssignments) {
     const auto &var = pair.first;
-    auto &assignment = pair.second;
+    auto *assignment = pair.second;
     // TODO: Track multiple values for an assignment when visiting a block
     // multiple times (if we end up needing that)
-    if (assignment.producedSymbolicValues.size() == assignment.producers.size())
+    if (assignment->producedSymbolicValues.size() ==
+        assignment->producers.size())
       continue;
-    for (size_t i = 0, e = assignment.producers.size(); i < e; ++i) {
-      if (assignment.producers[i] != producer)
+    for (size_t i = 0, e = assignment->producers.size(); i < e; ++i) {
+      if (assignment->producers[i] != producer)
         continue;
-      assert(i == assignment.producedSymbolicValues.size() &&
+      assert(i == assignment->producedSymbolicValues.size() &&
              "Producers collected out of order");
-      assignment.producedSymbolicValues.push_back(symbolicValue);
+      assignment->producedSymbolicValues.push_back(symbolicValue);
+      KLEE_DEBUG(dbgs() << "Collected value for `" << var.name << "`\n");
+      KLEE_DEBUG(dbgs() << printValue(*producer) << "\n");
+      KLEE_DEBUG(dbgs() << symbolicValue << "\n");
     }
-    KLEE_DEBUG(dbgs() << "Collected value for `" << var.name << "`\n");
-    KLEE_DEBUG(dbgs() << printValue(*producer) << "\n");
-    KLEE_DEBUG(dbgs() << symbolicValue << "\n");
   }
 }
 

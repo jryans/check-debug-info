@@ -19,6 +19,7 @@
 #include "klee/Support/PrintVersion.h"
 #include "klee/Support/RuntimeHandling.h"
 
+#include "llvm/ADT/IntervalMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/SmallSet.h"
@@ -144,15 +145,6 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
 
   auto &assignments = varToAs[variable];
 
-  // Check if this redundantly specifies the previous assignment
-  if (assignments.size()) {
-    const auto &lastAssignment = assignments.back();
-    if (lastAssignment.producers == producers) {
-      KLEE_DEBUG(dbgs() << "  Value is same as last assignment, skipping\n");
-      return true;
-    }
-  }
-
   // TODO: Rethink this phi handling...
   // For phi nodes, check if they redundantly match the previous assignments for
   // all incoming edges. This may involve traversing multiple predecessor
@@ -243,7 +235,7 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
       assignment.startLine = std::max(assignment.startLine, variable.declLine);
     }
   }
-  if (!assignment.startLine && !assignments.size()) {
+  if (!assignment.startLine && assignments.empty()) {
     // If there are no other assignments so far, then assume this one starts at
     // declaration.
     assignment.startLine = variable.declLine;
@@ -361,6 +353,7 @@ bool gatherAssignments(const StringRef moduleKind, const Function &function,
   return summary;
 }
 
+// TODO: Maybe remove this now that we're matching via queries...?
 void generateAssignmentIDs(VariablesSet &variables, VToAs &varToAs) {
   for (const auto &variable : variables) {
     auto &assignments = varToAs[variable];
@@ -370,6 +363,36 @@ void generateAssignmentIDs(VariablesSet &variables, VToAs &varToAs) {
     });
     for (size_t i = 0, e = assignments.size(); i < e; ++i) {
       assignments[i].id = i;
+    }
+  }
+}
+
+void buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
+                                   VToRangeToA &varToRangeToA,
+                                   RangeToA::Allocator &rangeMapAllocator) {
+  for (const auto &variable : variables) {
+    auto &assignments = varToAs[variable];
+    sort(assignments, [](const Assignment &left, const Assignment &right) {
+      return std::tie(left.startLine, left.asmLine) <
+             std::tie(right.startLine, right.asmLine);
+    });
+    for (size_t i = 0, e = assignments.size(); i < e; ++i) {
+      auto &assignment = assignments[i];
+
+      unsigned int start = assignment.startLine;
+      unsigned int end;
+      if ((i + 1) < e)
+        end = assignments[i + 1].startLine;
+      else
+        end = UINT_MAX;
+
+      auto &varRange =
+          varToRangeToA
+              .emplace(std::make_pair(variable, RangeToA(rangeMapAllocator)))
+              .first->second;
+      assert(!varRange.overlaps(start, end) &&
+             "Multiple assignments for the same source location");
+      varRange.insert(start, end, &assignment);
     }
   }
 }
@@ -453,6 +476,10 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   VToAs beforeVToAs;
   VToAs afterVToAs;
 
+  RangeToA::Allocator rangeMapAllocator;
+  VToRangeToA beforeVToRangeToA;
+  VToRangeToA afterVToRangeToA;
+
   // Borrow KLEE's instruction info analysis for now...
   InstructionInfoTable beforeInstrInfo(*beforeModule);
   InstructionInfoTable afterInstrInfo(*afterModule);
@@ -460,11 +487,15 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   summary &= gatherAssignments("Before", beforeDefinition, beforeInstrInfo,
                                beforeVariables, beforeVToAs);
   generateAssignmentIDs(beforeVariables, beforeVToAs);
+  buildLiveRangeToAssignmentMap(beforeVariables, beforeVToAs, beforeVToRangeToA,
+                                rangeMapAllocator);
   KLEE_DEBUG(dbgs() << "\n");
 
   summary &= gatherAssignments("After", afterDefinition, afterInstrInfo,
                                afterVariables, afterVToAs);
   generateAssignmentIDs(afterVariables, afterVToAs);
+  buildLiveRangeToAssignmentMap(afterVariables, afterVToAs, afterVToRangeToA,
+                                rangeMapAllocator);
   KLEE_DEBUG(dbgs() << "\n");
 
   {
@@ -481,65 +512,69 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   outs() << "### Assignments\n\n";
 
+  // TODO: Remove this and hand `ValuesCollector` the live range map instead...?
   VAs beforeFlatVAs;
-  for (const auto &varAssignments : beforeVToAs) {
+  for (auto &varAssignments : beforeVToAs) {
     const auto &variable = varAssignments.first;
-    for (const auto &assn : varAssignments.second) {
-      beforeFlatVAs.push_back(std::make_pair(variable, assn));
+    for (auto &assn : varAssignments.second) {
+      beforeFlatVAs.push_back(std::make_pair(variable, &assn));
     }
   }
   sort(beforeFlatVAs);
 
   VAs afterFlatVAs;
-  for (const auto &varAssignments : afterVToAs) {
+  for (auto &varAssignments : afterVToAs) {
     const auto &variable = varAssignments.first;
-    for (const auto &assn : varAssignments.second) {
-      afterFlatVAs.push_back(std::make_pair(variable, assn));
+    for (auto &assn : varAssignments.second) {
+      afterFlatVAs.push_back(std::make_pair(variable, &assn));
     }
   }
   sort(afterFlatVAs);
 
+  // Verify all before live ranges are covered by after ranges
   {
-    // TODO: Use pointers instead of copying...
-    VAs mismatchedBeforeVAs;
-    VAs mismatchedAfterVAs;
-    // TODO: Be less lazy here, write a loop like a normal person...
-    std::set_difference(
-        beforeFlatVAs.begin(), beforeFlatVAs.end(), afterFlatVAs.begin(),
-        afterFlatVAs.end(),
-        std::inserter(mismatchedBeforeVAs, mismatchedBeforeVAs.begin()));
-    std::set_difference(
-        afterFlatVAs.begin(), afterFlatVAs.end(), beforeFlatVAs.begin(),
-        beforeFlatVAs.end(),
-        std::inserter(mismatchedAfterVAs, mismatchedAfterVAs.begin()));
+    size_t covered = 0, uncovered = 0;
 
-    bool match = mismatchedBeforeVAs.empty() && mismatchedAfterVAs.empty();
+    for (const auto &variable : beforeVariables) {
+      const auto &beforeRangeLookup = beforeVToRangeToA.find(variable);
+      const auto &afterRangeLookup = afterVToRangeToA.find(variable);
+
+      assert(beforeRangeLookup != beforeVToRangeToA.end() &&
+             "Before live ranges not found");
+      if (afterRangeLookup == afterVToRangeToA.end()) {
+        outs() << "❌ After live ranges for `" << variable.name
+               << "` not found\n";
+        ++uncovered;
+        continue;
+      }
+
+      const auto &beforeRange = beforeRangeLookup->second;
+      const auto &afterRange = afterRangeLookup->second;
+
+      assert(beforeRange.stop() == UINT_MAX &&
+             "Before live range terminates early");
+      assert(afterRange.stop() == UINT_MAX &&
+             "After live range terminates early");
+      if (beforeRange.start() != afterRange.start()) {
+        outs() << "❌ Live ranges for `" << variable.name << "` don't match: ["
+               << beforeRange.start() << ",∞) vs. [" << afterRange.start()
+               << ",∞)\n";
+        ++uncovered;
+        continue;
+      }
+
+      ++covered;
+    }
+
+    bool match = !uncovered;
     summary &= match;
 
     outs() << (match ? "✅ " : "❌ ");
-    outs() << beforeFlatVAs.size() << " before assignments found, ";
-    outs() << afterFlatVAs.size() << " after assignments found, ";
-    outs() << mismatchedBeforeVAs.size() + mismatchedAfterVAs.size()
-           << " mismatched\n";
-
-    for (const auto &varAssn : mismatchedBeforeVAs) {
-      outs() << "❌ Mismatched before `" << varAssn.first.name << "` ";
-      outs() << "assn " << varAssn.second << " ";
-      outs() << "from " << varAssn.second.producers << "\n";
-    }
-    for (const auto &varAssn : mismatchedAfterVAs) {
-      outs() << "❌ Mismatched after `" << varAssn.first.name << "` ";
-      outs() << "assn " << varAssn.second << " ";
-      outs() << "from " << varAssn.second.producers << "\n";
-    }
+    outs() << covered << " before live ranges covered, ";
+    outs() << uncovered << " uncovered\n";
   }
 
   outs() << "\n"; // ### Assignments
-
-  if (!summary) {
-    outs() << "🔔 Some assignment checks failed, "
-           << "value checks may be nonsensical…\n\n";
-  }
 
   outs() << "### Symbolic values\n\n";
 
@@ -561,6 +596,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
                       afterDefinition.getName(), outputDir, afterFlatVAs);
   }
 
+  // Check after assignments against before assignments on the same source line
   {
     size_t eqValues = 0, neValues = 0;
 
@@ -569,34 +605,42 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
     Solver *solver = constructSolverChain(coreSolver, "", "", "", "");
     ExprBuilder *builder = createDefaultExprBuilder();
 
-    for (size_t i = 0, e = std::min(beforeFlatVAs.size(), afterFlatVAs.size());
-         i < e; ++i) {
-      auto &before = beforeFlatVAs[i];
+    for (size_t i = 0, e = afterFlatVAs.size(); i < e; ++i) {
       auto &after = afterFlatVAs[i];
-      if (before.first != after.first) {
-        outs() << "🔔 Before variable `" << before.first.name
-               << "` doesn't match after variable `" << after.first.name
-               << "`\n";
+      const Variable &variable = after.first;
+      const auto &beforeRangeLookup = beforeVToRangeToA.find(variable);
+      if (beforeRangeLookup == beforeVToRangeToA.end()) {
+        outs() << "❌ Before live range for `" << variable.name
+               << "` not found\n";
+        ++neValues;
+        continue;
       }
-      const Variable &variable = before.first;
-      Assignment &beforeAssn = before.second;
-      Assignment &afterAssn = after.second;
+      Assignment *afterAssn = after.second;
+      auto &beforeRange = beforeVToRangeToA.at(variable);
+      auto beforeAssnLookup = beforeRange.find(afterAssn->startLine);
+      if (beforeAssnLookup == beforeRange.end()) {
+        outs() << "❌ Before live range for `" << variable.name
+               << "` at src line " << afterAssn->startLine << " not found\n";
+        ++neValues;
+        continue;
+      }
+      Assignment *beforeAssn = *beforeAssnLookup;
       // This does _not_ check symbolic values
-      if (beforeAssn != afterAssn) {
-        outs() << "🔔 Before assn " << beforeAssn << " doesn't match after assn "
-               << afterAssn << "\n";
+      if (*beforeAssn != *afterAssn) {
+        outs() << "🔔 Before assn " << *beforeAssn
+               << " doesn't match after assn " << *afterAssn << "\n";
       }
-      const auto &beforeSymValue = beforeAssn.evaluate();
-      const auto &afterSymValue = afterAssn.evaluate();
+      const auto &beforeSymValue = beforeAssn->evaluate();
+      const auto &afterSymValue = afterAssn->evaluate();
       if (!beforeSymValue) {
         outs() << "❌ Before `" << variable.name << "` ";
-        outs() << "assn " << beforeAssn << " has no symbolic value ";
-        outs() << "from " << beforeAssn.producers << "\n";
+        outs() << "assn " << *beforeAssn << " has no symbolic value ";
+        outs() << "from " << beforeAssn->producers << "\n";
       }
       if (!afterSymValue) {
         outs() << "❌ After `" << variable.name << "` ";
-        outs() << "assn " << afterAssn << " has no symbolic value ";
-        outs() << "from " << afterAssn.producers << "\n";
+        outs() << "assn " << *afterAssn << " has no symbolic value ";
+        outs() << "from " << afterAssn->producers << "\n";
       }
       if (!beforeSymValue || !afterSymValue) {
         ++neValues;
@@ -605,12 +649,12 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
       KLEE_DEBUG(dbgs() << "Checking equivalence of `" << variable.name << "` "
                         << "from\n"
-                        << "assn " << beforeAssn << "\n"
-                        << beforeAssn.producers << "\n"
+                        << "assn " << *beforeAssn << "\n"
+                        << beforeAssn->producers << "\n"
                         << beforeSymValue << "\n"
                         << "and\n"
-                        << "assn " << afterAssn << "\n"
-                        << afterAssn.producers << "\n"
+                        << "assn " << *afterAssn << "\n"
+                        << afterAssn->producers << "\n"
                         << afterSymValue << "\n");
 
       assert(beforeSymValue->getWidth() == afterSymValue->getWidth() &&
