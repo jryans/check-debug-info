@@ -54,6 +54,7 @@
 #include "klee/System/MemoryUsage.h"
 #include "klee/System/Time.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
@@ -549,7 +550,6 @@ Executor::setModule(std::vector<std::unique_ptr<llvm::Module>> &modules,
   // 3.) Optimise and prepare for KLEE
 
   // Create a list of functions that should be preserved if used
-  std::vector<const char *> preservedFunctions;
   specialFunctionHandler = new SpecialFunctionHandler(*this);
   specialFunctionHandler->prepare(preservedFunctions);
 
@@ -2006,7 +2006,12 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
     // TODO: Work out how to assume KLEE checks pass, then remove the function
     // name check here
     if (interpreterOpts.IndependentFunctions &&
-        !f->getName().startswith("klee_")) {
+        // Allow KLEE check functions (for now)
+        !f->getName().startswith("klee_") &&
+        // Allow KLEE freestanding runtime functions
+        !llvm::any_of(preservedFunctions, [&](const auto *name) {
+          return f->getName().equals(name);
+        })) {
       if (DebugExecutionTrace)
         *debugExecTraceFile
             << "Function independent mode active, skipping call to `"
