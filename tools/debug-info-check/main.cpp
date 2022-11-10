@@ -709,8 +709,12 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
       const auto &beforeRangeLookup = beforeVToRangeToA.find(variable);
       const auto &afterRangeLookup = afterVToRangeToA.find(variable);
 
-      assert(beforeRangeLookup != beforeVToRangeToA.end() &&
-             "Before live ranges not found");
+      if (beforeRangeLookup == beforeVToRangeToA.end()) {
+        outs() << "❌ Before live ranges for `" << variable.name
+               << "` not found\n";
+        ++uncovered;
+        continue;
+      }
       if (afterRangeLookup == afterVToRangeToA.end()) {
         outs() << "❌ After live ranges for `" << variable.name
                << "` not found\n";
