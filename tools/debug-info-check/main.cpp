@@ -105,9 +105,9 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
       outs() << printInstruction(*varIntrinsic) << "\n";
       return false;
     }
-    if (!isa<Instruction>(*producer) && !isa<Argument>(*producer) &&
-        !isa<ConstantInt>(*producer))
-      return true;
+    assert((isa<Instruction>(*producer) || isa<Argument>(*producer) ||
+            isa<ConstantInt>(*producer)) &&
+           "Unexpected producer type");
   }
 
   KLEE_DEBUG(dbgs() << userKind << " `" << variable.name << "`, ");
