@@ -657,14 +657,16 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   generateAssignmentIDs(beforeVariables, beforeVToAs);
   buildLiveRangeToAssignmentMap(beforeVariables, beforeVToAs, beforeVToRangeToA,
                                 rangeMapAllocator);
-  KLEE_DEBUG(dbgs() << "\n");
+  if (!beforeVariables.empty())
+    KLEE_DEBUG(dbgs() << "\n");
 
   summary &= gatherAssignments("After", afterDefinition, afterInstrInfo,
                                afterVariables, afterVToAs);
   generateAssignmentIDs(afterVariables, afterVToAs);
   buildLiveRangeToAssignmentMap(afterVariables, afterVToAs, afterVToRangeToA,
                                 rangeMapAllocator);
-  KLEE_DEBUG(dbgs() << "\n");
+  if (!afterVariables.empty())
+    KLEE_DEBUG(dbgs() << "\n");
 
   {
     bool match = beforeVariables == afterVariables;
