@@ -32,6 +32,7 @@
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
@@ -106,7 +107,7 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
       return false;
     }
     assert((isa<Instruction>(*producer) || isa<Argument>(*producer) ||
-            isa<ConstantInt>(*producer)) &&
+            isa<ConstantInt>(*producer) || isa<GlobalVariable>(*producer)) &&
            "Unexpected producer type");
   }
 
@@ -122,6 +123,9 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
       KLEE_DEBUG(dbgs() << "arg " << producerArgument->getArgNo());
     } else if (const auto *producerInt = dyn_cast<ConstantInt>(producer)) {
       KLEE_DEBUG(dbgs() << "value " << producerInt->getValue());
+    } else if (const auto *producerGlobal =
+                   dyn_cast<GlobalVariable>(producer)) {
+      KLEE_DEBUG(dbgs() << "global " << producerGlobal->getName());
     }
     if (producer != producers.back())
       KLEE_DEBUG(dbgs() << ", ");
