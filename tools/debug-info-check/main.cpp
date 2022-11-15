@@ -139,21 +139,6 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
     }
   }
 
-  // Check if this has a single argument pointer type producer
-  // Pointer arguments are concretised in function independent mode
-  if (producers.size() == 1 && isa<Argument>(producers[0]) &&
-      producers[0]->getType()->isPointerTy()) {
-    KLEE_DEBUG(dbgs() << "  Producer is pointer argument, skipping\n");
-    return true;
-  }
-  // Check if this has a single global variable pointer type producer
-  // Global variables are accessed via concrete pointers
-  if (producers.size() == 1 && isa<GlobalVariable>(producers[0]) &&
-      producers[0]->getType()->isPointerTy()) {
-    KLEE_DEBUG(dbgs() << "  Producer is global variable pointer, skipping\n");
-    return true;
-  }
-
   auto &assignments = varToAs[variable];
 
   // TODO: Rethink this phi handling...
