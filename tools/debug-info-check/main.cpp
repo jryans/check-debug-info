@@ -721,15 +721,14 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
       const auto &beforeRange = beforeRangeLookup->second;
       const auto &afterRange = afterRangeLookup->second;
 
-      assert(beforeRange.stop() == std::make_pair(UINT_MAX, UINT_MAX) &&
-             "Before live range terminates early");
-      assert(afterRange.stop() == std::make_pair(UINT_MAX, UINT_MAX) &&
-             "After live range terminates early");
+      Location MAX = {UINT_MAX, UINT_MAX};
+      assert(beforeRange.stop() == MAX && "Before live range terminates early");
+      assert(afterRange.stop() == MAX && "After live range terminates early");
       if (beforeRange.start() != afterRange.start()) {
         outs() << "❌ Live ranges for `" << variable.name << "` don't match: ["
-               << beforeRange.start().first << "." << beforeRange.start().second
-               << ",∞) vs. [" << afterRange.start().first << "."
-               << afterRange.start().second << ",∞)\n";
+               << beforeRange.start().line << "." << beforeRange.start().column
+               << ",∞) vs. [" << afterRange.start().line << "."
+               << afterRange.start().column << ",∞)\n";
         ++uncovered;
         continue;
       }

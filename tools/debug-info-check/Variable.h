@@ -100,6 +100,10 @@ struct Assignment {
   klee::ref<klee::Expr> evaluatedSymbolicValue;
 
   bool operator==(const Assignment &other) const {
+    // If either one is missing column info, ignore it for comparison purposes
+    if (!startColumn || !other.startColumn) {
+      return std::tie(startLine, id) == std::tie(other.startLine, other.id);
+    }
     return std::tie(startLine, startColumn, id) ==
            std::tie(other.startLine, other.startColumn, other.id);
   }
@@ -107,9 +111,15 @@ struct Assignment {
   bool operator!=(const Assignment &other) const { return !(*this == other); }
 
   bool operator<(const Assignment &other) const {
+    // If either one is missing column info, ignore it for comparison purposes
+    if (!startColumn || !other.startColumn) {
+      return std::tie(startLine, id) < std::tie(other.startLine, other.id);
+    }
     return std::tie(startLine, startColumn, id) <
            std::tie(other.startLine, other.startColumn, other.id);
   }
+
+  bool operator<=(const Assignment &other) const { return !(other < *this); }
 
   bool isValueConsistent(const Variable &var, const llvm::Value *other) const;
 
@@ -131,7 +141,31 @@ using VariablesSet = llvm::SmallSet<Variable, 8>;
 using Assignments = llvm::SmallVector<Assignment>;
 using VToAs = std::map<Variable, Assignments>;
 
-using Location = std::pair<unsigned int, unsigned int>;
+struct Location {
+  unsigned int line;
+  unsigned int column;
+
+  bool operator==(const Location &other) const {
+    // If either one is missing column info, ignore it for comparison purposes
+    if (!column || !other.column) {
+      return line == other.line;
+    }
+    return std::tie(line, column) == std::tie(other.line, other.column);
+  }
+
+  bool operator!=(const Location &other) const { return !(*this == other); }
+
+  bool operator<(const Location &other) const {
+    // If either one is missing column info, ignore it for comparison purposes
+    if (!column || !other.column) {
+      return line < other.line;
+    }
+    return std::tie(line, column) < std::tie(other.line, other.column);
+  }
+
+  bool operator<=(const Location &other) const { return !(other < *this); }
+};
+
 using RangeToA = llvm::IntervalMap<Location, Assignment *, 8,
                                    llvm::IntervalMapHalfOpenInfo<Location>>;
 using VToRangeToA = std::map<Variable, RangeToA>;
