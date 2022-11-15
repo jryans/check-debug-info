@@ -11,7 +11,6 @@
 #define KLEE_EXECUTIONSTATE_H
 
 #include "AddressSpace.h"
-#include "MergeHandler.h"
 
 #include "klee/ADT/ImmutableSet.h"
 #include "klee/ADT/TreeStream.h"
@@ -33,6 +32,7 @@ struct Cell;
 struct KFunction;
 struct KInstruction;
 class MemoryObject;
+class MergeHandler;
 class PTreeNode;
 struct InstructionInfo;
 

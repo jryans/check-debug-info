@@ -34,7 +34,6 @@ namespace klee {
 class Array;
 class ArrayCache;
 class ConstantExpr;
-class ObjectState;
 
 template<class T> class ref;
 

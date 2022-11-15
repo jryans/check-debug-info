@@ -7,12 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "AddressSpace.h"
+#include "klee/Core/AddressSpace.h"
 
-#include "ExecutionState.h"
-#include "Memory.h"
 #include "TimingSolver.h"
 
+#include "klee/Core/ExecutionState.h"
+#include "klee/Core/Memory.h"
 #include "klee/Expr/Expr.h"
 #include "klee/Statistics/TimerStatIncrementer.h"
 

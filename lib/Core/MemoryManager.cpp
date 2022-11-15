@@ -10,8 +10,8 @@
 #include "MemoryManager.h"
 
 #include "CoreStats.h"
-#include "Memory.h"
 
+#include "klee/Core/Memory.h"
 #include "klee/Expr/Expr.h"
 #include "klee/Support/ErrorHandling.h"
 

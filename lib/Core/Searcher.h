@@ -10,9 +10,10 @@
 #ifndef KLEE_SEARCHER_H
 #define KLEE_SEARCHER_H
 
-#include "ExecutionState.h"
 #include "PTree.h"
+
 #include "klee/ADT/RNG.h"
+#include "klee/Core/ExecutionState.h"
 #include "klee/System/Time.h"
 
 #include "llvm/Support/CommandLine.h"

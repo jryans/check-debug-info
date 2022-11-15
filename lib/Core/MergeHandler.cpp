@@ -10,9 +10,10 @@
 #include "MergeHandler.h"
 
 #include "CoreStats.h"
-#include "ExecutionState.h"
 #include "Executor.h"
 #include "Searcher.h"
+
+#include "klee/Core/ExecutionState.h"
 
 namespace klee {
 

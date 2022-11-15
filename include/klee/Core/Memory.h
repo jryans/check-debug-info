@@ -11,7 +11,6 @@
 #define KLEE_MEMORY_H
 
 #include "Context.h"
-#include "TimingSolver.h"
 
 #include "klee/Expr/Expr.h"
 
@@ -30,7 +29,7 @@ class ArrayCache;
 class BitArray;
 class ExecutionState;
 class MemoryManager;
-class Solver;
+class TimingSolver;
 
 class MemoryObject {
   friend class STPBuilder;

@@ -10,7 +10,6 @@
 #include "Searcher.h"
 
 #include "CoreStats.h"
-#include "ExecutionState.h"
 #include "Executor.h"
 #include "MergeHandler.h"
 #include "PTree.h"
@@ -18,6 +17,7 @@
 
 #include "klee/ADT/DiscretePDF.h"
 #include "klee/ADT/RNG.h"
+#include "klee/Core/ExecutionState.h"
 #include "klee/Statistics/Statistics.h"
 #include "klee/Module/InstructionInfoTable.h"
 #include "klee/Module/KInstruction.h"

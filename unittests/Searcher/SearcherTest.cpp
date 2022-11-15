@@ -11,7 +11,7 @@
 #include "gtest/gtest.h"
 
 #include "klee/ADT/RNG.h"
-#include "Core/ExecutionState.h"
+#include "klee/Core/ExecutionState.h"
 #include "Core/PTree.h"
 #include "Core/Searcher.h"
 

@@ -9,8 +9,7 @@
 
 #include "ImpliedValue.h"
 
-#include "Context.h"
-
+#include "klee/Core/Context.h"
 #include "klee/Expr/Constraints.h"
 #include "klee/Expr/Expr.h"
 #include "klee/Expr/ExprUtil.h"

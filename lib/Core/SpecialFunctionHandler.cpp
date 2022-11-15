@@ -9,9 +9,7 @@
 
 #include "SpecialFunctionHandler.h"
 
-#include "ExecutionState.h"
 #include "Executor.h"
-#include "Memory.h"
 #include "MemoryManager.h"
 #include "MergeHandler.h"
 #include "Searcher.h"
@@ -19,6 +17,8 @@
 #include "TimingSolver.h"
 
 #include "klee/Config/config.h"
+#include "klee/Core/ExecutionState.h"
+#include "klee/Core/Memory.h"
 #include "klee/Module/KInstruction.h"
 #include "klee/Module/KModule.h"
 #include "klee/Solver/SolverCmdLine.h"

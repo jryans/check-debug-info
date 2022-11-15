@@ -10,16 +10,13 @@
 #ifndef KLEE_ADDRESSSPACE_H
 #define KLEE_ADDRESSSPACE_H
 
-#include "Memory.h"
-
-#include "klee/Expr/Expr.h"
 #include "klee/ADT/ImmutableMap.h"
+#include "klee/Core/Memory.h"
+#include "klee/Expr/Expr.h"
 #include "klee/System/Time.h"
 
 namespace klee {
   class ExecutionState;
-  class MemoryObject;
-  class ObjectState;
   class TimingSolver;
 
   template<class T> class ref;

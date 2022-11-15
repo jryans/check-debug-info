@@ -7,10 +7,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "ExecutionState.h"
+#include "klee/Core/ExecutionState.h"
 
-#include "Memory.h"
+#include "MergeHandler.h"
 
+#include "klee/Core/Memory.h"
 #include "klee/Expr/Expr.h"
 #include "klee/Module/Cell.h"
 #include "klee/Module/InstructionInfoTable.h"
