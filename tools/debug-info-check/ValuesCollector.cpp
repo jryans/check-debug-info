@@ -2,6 +2,8 @@
 #include "Variable.h"
 
 #include "klee/ADT/Ref.h"
+#include "klee/Core/AddressSpace.h"
+#include "klee/Core/ExecutionState.h"
 #include "klee/Core/Interpreter.h"
 #include "klee/Expr/Expr.h"
 #include "klee/Module/Cell.h"
@@ -13,6 +15,7 @@
 #include "klee/Support/FileHandling.h"
 #include "klee/Support/ModuleUtil.h"
 
+#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
@@ -60,8 +63,8 @@ public:
   void incPathsExplored(std::uint32_t num = 1) override {}
 
   void visitBeforeExecution(ExecutionState &state, KInstruction *ki) override;
-  void recordValue(const Instruction *user, const Value *producer,
-                   ref<Expr> symbolicValue);
+  void recordValue(ExecutionState &state, const Instruction *user,
+                   const Value *producer, ref<Expr> symbolicValue);
 
   void processTestCase(const ExecutionState &state, const char *err,
                        const char *suffix) override {}
@@ -101,7 +104,7 @@ void VCHandler::visitBeforeExecution(ExecutionState &state, KInstruction *ki) {
     if (!producer)
       return;
     ref<Expr> symbolicValue = interpreter->getOperandCell(state, ki, 0).value;
-    recordValue(storeInstruction, producer, symbolicValue);
+    recordValue(state, storeInstruction, producer, symbolicValue);
   } else if (const auto *valueIntrinsic = dyn_cast<DbgValueInst>(instruction)) {
     for (size_t i = 0, e = valueIntrinsic->getNumVariableLocationOps(); i < e;
          ++i) {
@@ -112,13 +115,13 @@ void VCHandler::visitBeforeExecution(ExecutionState &state, KInstruction *ki) {
       // real operands are shifted over by 1.
       ref<Expr> symbolicValue =
           interpreter->getOperandCell(state, ki, i + 1).value;
-      recordValue(valueIntrinsic, producer, symbolicValue);
+      recordValue(state, valueIntrinsic, producer, symbolicValue);
     }
   }
 }
 
-void VCHandler::recordValue(const Instruction *user, const Value *producer,
-                            ref<Expr> symbolicValue) {
+void VCHandler::recordValue(ExecutionState &state, const Instruction *user,
+                            const Value *producer, ref<Expr> symbolicValue) {
   assert(user && "Assignment user missing");
   // We currently filter assignments by user (as a way of matching stores).
   // This works okay for stores since they are `void` type (have no IR result),
@@ -131,6 +134,24 @@ void VCHandler::recordValue(const Instruction *user, const Value *producer,
   assert(producer && "Symbolic value producer missing");
   if (!symbolicValue)
     return;
+
+  // Find the associated `MemoryObject` for concrete pointers
+  if (producer->getType()->isPointerTy()) {
+    if (auto *address = dyn_cast<klee::ConstantExpr>(symbolicValue)) {
+      ObjectPair op;
+      assert(state.addressSpace.resolveOne(address, op) &&
+             "Concrete pointer not bound to MemoryObject");
+      const auto *memory = op.first;
+      ref<Expr> offset = memory->getOffsetExpr(address);
+      KLEE_DEBUG(dbgs() << "Concrete pointer resolves to " << memory->name
+                        << ", offset " << offset << "\n");
+      // TODO: Produce human-readable expressions instead of hash codes
+      auto hash = hash_combine(memory->name, offset->computeHash());
+      symbolicValue = klee::ConstantExpr::create(hash, Expr::Int64);
+      KLEE_DEBUG(dbgs() << "Replaced concrete pointer with hash "
+                        << symbolicValue << "\n");
+    }
+  }
 
   // Look for assignments matching the user
   // TODO: Gather all users up front first for faster filtering...?
