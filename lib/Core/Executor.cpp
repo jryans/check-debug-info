@@ -456,7 +456,9 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
       replayKTest(0), replayPath(0), usingSeeds(0),
       atMemoryLimit(false), inhibitForking(false), haltExecution(false),
       ivcEnabled(false), debugLogBuffer(debugBufferString) {
-
+  // force deterministic initialization of memory objects
+  srand(1);
+  srandom(1);
 
   const time::Span maxTime{MaxTime};
   if (maxTime) timers.add(
@@ -4679,16 +4681,58 @@ void Executor::enterIndependentFunction(ExecutionState &state, KFunction *kf) {
 
 /***/
 
+void Executor::runFunctionSetup(ExecutionState &state) {
+  if (pathWriter)
+    state.pathOS = pathWriter->open();
+  if (symPathWriter)
+    state.symPathOS = symPathWriter->open();
+  if (statsTracker)
+    statsTracker->framePushed(state, 0);
+}
+
+void Executor::runFunctionTeardown() {
+  // hack to clear memory objects
+  delete memory;
+  memory = new MemoryManager(NULL);
+
+  globalObjects.clear();
+  globalAddresses.clear();
+
+  if (statsTracker)
+    statsTracker->done();
+
+  Context::reset();
+
+  if (debugInstFile)
+    debugInstFile->flush();
+  if (debugExecTraceFile)
+    debugExecTraceFile->flush();
+}
+
+void Executor::runFunction(Function *f) {
+  KFunction *kf = kmodule->functionMap[f];
+  ExecutionState *state = new ExecutionState(kf);
+
+  runFunctionSetup(*state);
+
+  // TODO: Should this be another interpreter handler as well...?
+  if (interpreterOpts.IndependentFunctions)
+    enterIndependentFunction(*state, kf);
+
+  initializeGlobals(*state);
+
+  processTree = std::make_unique<PTree>(state);
+  run(*state);
+  processTree = nullptr;
+
+  runFunctionTeardown();
+}
+
 void Executor::runFunctionAsMain(Function *f,
 				 int argc,
 				 char **argv,
 				 char **envp) {
   std::vector<ref<Expr> > arguments;
-
-  // force deterministic initialization of memory objects
-  srand(1);
-  srandom(1);
-  
   MemoryObject *argvMO = 0;
 
   // In order to make uclibc happy and be closer to what the system is
@@ -4729,16 +4773,9 @@ void Executor::runFunctionAsMain(Function *f,
     }
   }
 
-  ExecutionState *state = new ExecutionState(kmodule->functionMap[f]);
+  ExecutionState *state = new ExecutionState(kf);
 
-  if (pathWriter) 
-    state->pathOS = pathWriter->open();
-  if (symPathWriter) 
-    state->symPathOS = symPathWriter->open();
-
-
-  if (statsTracker)
-    statsTracker->framePushed(*state, 0);
+  runFunctionSetup(*state);
 
   assert(arguments.size() == f->arg_size() && "wrong number of arguments");
   for (unsigned i = 0, e = f->arg_size(); i != e; ++i)
@@ -4791,22 +4828,7 @@ void Executor::runFunctionAsMain(Function *f,
   run(*state);
   processTree = nullptr;
 
-  // hack to clear memory objects
-  delete memory;
-  memory = new MemoryManager(NULL);
-
-  globalObjects.clear();
-  globalAddresses.clear();
-
-  if (statsTracker)
-    statsTracker->done();
-
-  Context::reset();
-
-  if (debugInstFile)
-    debugInstFile->flush();
-  if (debugExecTraceFile)
-    debugExecTraceFile->flush();
+  runFunctionTeardown();
 }
 
 unsigned Executor::getPathStreamID(const ExecutionState &state) {

@@ -243,8 +243,8 @@ collectValues(StringRef runtimeDir, std::unique_ptr<llvm::Module> mainModule,
   // make that entirely clear since it takes the `unique_ptr` by reference...
   // Need to keep `interpreter` alive to avoid the modules being deleted.
   auto finalModule = interpreter->setModule(modules, moduleOpts);
-  Function *mainFn = finalModule->getFunction(functionName);
-  if (!mainFn) {
+  Function *entryFn = finalModule->getFunction(functionName);
+  if (!entryFn) {
     klee_error("Entry function '%s' not found in module.", functionName.data());
   }
 
@@ -254,9 +254,7 @@ collectValues(StringRef runtimeDir, std::unique_ptr<llvm::Module> mainModule,
   // TODO: Seeds...?
   // TODO: Change directory...?
 
-  char *argv[1] = {nullptr};
-  char *envp[1] = {nullptr};
-  interpreter->runFunctionAsMain(mainFn, /*argc=*/0, argv, envp);
+  interpreter->runFunction(entryFn);
 
   // TODO: End time...?
   // TODO: More stats...?

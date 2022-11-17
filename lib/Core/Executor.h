@@ -494,6 +494,9 @@ private:
   void printTraceBeforeExecution(ExecutionState &state, KInstruction *ki);
   void printTraceAfterExecution(ExecutionState &state, KInstruction *ki);
 
+  void runFunctionSetup(ExecutionState &state);
+  void runFunctionTeardown();
+
 public:
   Executor(llvm::LLVMContext &ctx, const InterpreterOptions &opts,
       InterpreterHandler *ie);
@@ -527,6 +530,8 @@ public:
   void useSeeds(const std::vector<struct KTest *> *seeds) override {
     usingSeeds = seeds;
   }
+
+  void runFunction(llvm::Function *f) override;
 
   void runFunctionAsMain(llvm::Function *f, int argc, char **argv,
                          char **envp) override;
