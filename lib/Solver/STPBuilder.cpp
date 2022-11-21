@@ -608,6 +608,7 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out) {
     if (srcWidth==1) {
       return vc_iteExpr(vc, src, bvOne(*width_out), bvZero(*width_out));
     } else {
+      assert(*width_out > srcWidth && "Invalid width_out");
       return vc_bvConcatExpr(vc, bvZero(*width_out-srcWidth), src);
     }
   }
