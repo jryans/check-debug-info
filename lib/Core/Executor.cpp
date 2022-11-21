@@ -2026,7 +2026,9 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
         const ObjectState *argState =
             buildSymbolicValue(state, f, returnType, f->getName());
         // Bind return value as result of load from new symbolic memory
-        bindLocal(ki, state, argState->read(0, argState->size * 8));
+        const unsigned returnTypeSizeBits =
+            kmodule->targetData->getTypeSizeInBits(returnType);
+        bindLocal(ki, state, argState->read(0, returnTypeSizeBits));
       }
 
       // TODO: Support variable number of arguments
@@ -4375,10 +4377,13 @@ void Executor::executeMemoryOperation(ExecutionState &state,
   if (!isWrite && target->inst->isVolatile()) {
     LoadInst *inst = cast<LoadInst>(target->inst);
     // For volatile loads, build a symbolic value
+    auto *instType = inst->getType();
     const ObjectState *argState = buildSymbolicValue(
-        state, inst, inst->getType(), inst->getPointerOperand()->getName());
+        state, inst, instType, inst->getPointerOperand()->getName());
     // Bind value as result of load from new symbolic memory
-    bindLocal(target, state, argState->read(0, argState->size * 8));
+    const unsigned instTypeSizeBits =
+        kmodule->targetData->getTypeSizeInBits(instType);
+    bindLocal(target, state, argState->read(0, instTypeSizeBits));
     return;
   }
 
@@ -4587,11 +4592,12 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
          "Unexpected type when building symbolic value");
 
   // Allocate memory to hold symbolic value
-  const unsigned sizeBytes = kmodule->targetData->getTypeStoreSize(valueType);
+  const unsigned storeSizeBytes =
+      kmodule->targetData->getTypeStoreSize(valueType);
   const MemoryObject *valueMemory =
-      memory->allocate(sizeBytes,
-                        /*isLocal=*/true, /*isGlobal=*/false,
-                        /*allocSite=*/allocSite, /*alignment=*/8);
+      memory->allocate(storeSizeBytes,
+                       /*isLocal=*/true, /*isGlobal=*/false,
+                       /*allocSite=*/allocSite, /*alignment=*/8);
   valueMemory->setName(valueName.str());
 
   if (!valueMemory)
@@ -4599,7 +4605,7 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
 
   if (DebugExecutionTrace)
     *debugExecTraceFile << "Building symbolic value for " << *valueType << " "
-                        << valueName << " (" << sizeBytes * 8 << "b)…\n";
+                        << valueName << " (" << storeSizeBytes * 8 << "b)…\n";
 
   // Create object state instance from the new memory
   assert(!valueName.str().empty() && "Unexpected empty symbolic value name");
@@ -4652,9 +4658,12 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     state.addSymbolic(valueMemory, array);
   }
 
-  if (DebugExecutionTrace)
-      *debugExecTraceFile << "Built symbolic value for " << valueName << ": "
-                          << valueState->read(0, sizeBytes * 8) << "\n";
+  if (DebugExecutionTrace) {
+    const unsigned typeSizeBits =
+        kmodule->targetData->getTypeSizeInBits(valueType);
+    *debugExecTraceFile << "Built symbolic value for " << valueName << ": "
+                        << valueState->read(0, typeSizeBits) << "\n";
+  }
 
   return valueState;
 }
@@ -4671,11 +4680,14 @@ void Executor::enterIndependentFunction(ExecutionState &state, KFunction *kf) {
     const Argument *arg = f->getArg(k);
 
     // Build a symbolic value for the argument
+    auto *argType = arg->getType();
     const ObjectState *argState =
-        buildSymbolicValue(state, arg, arg->getType(), arg->getName());
+        buildSymbolicValue(state, arg, argType, arg->getName());
 
     // Rebind argument value as result of load from new symbolic memory
-    bindArgument(kf, k, state, argState->read(0, argState->size * 8));
+    const unsigned argTypeSizeBits =
+        kmodule->targetData->getTypeSizeInBits(argType);
+    bindArgument(kf, k, state, argState->read(0, argTypeSizeBits));
   }
 }
 
