@@ -186,6 +186,27 @@ ref<Expr> Assignment::evaluate() {
     case dwarf::DW_OP_stack_value: {
       isValueExpr = true;
     } break;
+    // 0x1001 / 4097
+    // Converts the bit width of the top value on the stack. Takes additional
+    // arguments specifying the output width in bits and signedness to use for
+    // the conversion.
+    case dwarf::DW_OP_LLVM_convert: {
+      const auto &bits = exprOp.getArg(0);
+      const auto &signednessRaw = exprOp.getArg(1);
+      assert((signednessRaw == dwarf::DW_ATE_signed ||
+              signednessRaw == dwarf::DW_ATE_unsigned) &&
+             "Unexpected signedness value");
+      const bool signedness = signednessRaw == dwarf::DW_ATE_signed;
+      ref<Expr> result;
+      if (bits < stack.back()->getWidth())
+        result = builder->Extract(stack.back(), 0, bits);
+      else if (signedness)
+        result = builder->SExt(stack.back(), bits);
+      else
+        result = builder->ZExt(stack.back(), bits);
+      KLEE_DEBUG(dbgs() << "convert: " << result << "\n");
+      stack.back() = std::move(result);
+    } break;
     // 0x1005 / 4101
     // Pushes one of several input values onto the stack identified by an index
     // argument.
