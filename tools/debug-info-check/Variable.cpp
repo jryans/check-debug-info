@@ -198,6 +198,11 @@ ref<Expr> Assignment::evaluate() {
              "Unexpected signedness value");
       const bool signedness = signednessRaw == dwarf::DW_ATE_signed;
       ref<Expr> result;
+      if (bits == stack.back()->getWidth()) {
+        KLEE_DEBUG(dbgs() << "convert: already " << bits
+                          << " bit(s), skipping\n");
+        continue;
+      }
       if (bits < stack.back()->getWidth())
         result = builder->Extract(stack.back(), 0, bits);
       else if (signedness)
