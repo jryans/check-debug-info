@@ -111,7 +111,7 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
            "Unexpected producer type");
   }
 
-  KLEE_DEBUG(dbgs() << userKind << " `" << variable.name << "`, ");
+  KLEE_DEBUG(dbgs() << userKind << " " << variable << ", ");
   if (producers.size() > 1)
     KLEE_DEBUG(dbgs() << "[ ");
   for (const auto *producer : producers) {
@@ -241,7 +241,7 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
     assignment.startLine = variable.declLine;
   }
   if (!assignment.startLine) {
-    outs() << "❌ " << userKind << " `" << variable.name << "`";
+    outs() << "❌ " << userKind << " " << variable;
     outs() << ": missing line info\n";
     return false;
   }
@@ -277,8 +277,7 @@ bool gatherAssignments(const StringRef moduleKind,
   assert(diVariable && "Variable intrinsic without a variable");
   Variable variable = {diVariable, diVariable->getName(),
                        diVariable->getLine()};
-  KLEE_DEBUG(dbgs() << moduleKind << " variable `" << variable.name << "` ");
-  KLEE_DEBUG(dbgs() << "declared on src line " << variable.declLine << "\n");
+  KLEE_DEBUG(dbgs() << moduleKind << " variable " << variable << "\n");
   variables.insert(variable);
 
   if (varIntrinsic->isUndef()) {
@@ -307,8 +306,7 @@ bool gatherAssignments(const StringRef moduleKind,
   } else if (const auto *valueIntrinsic =
                  dyn_cast<DbgValueInst>(&instruction)) {
     // Find related instructions via the `dbg.value`'s location ops
-    KLEE_DEBUG(dbgs() << "@dbg.value mapping for"
-                      << " `" << variable.name << "`, ");
+    KLEE_DEBUG(dbgs() << "@dbg.value mapping for " << variable << ", ");
     KLEE_DEBUG(dbgs() << "asm line "
                       << instrInfo.getInfo(*valueIntrinsic).assemblyLine
                       << "\n");
@@ -459,8 +457,8 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     const Variable &variable = current.first;
     const auto &otherRangeLookup = otherVToRangeToA.find(variable);
     if (otherRangeLookup == otherVToRangeToA.end()) {
-      outs() << "❌ " << otherKind << " live range for `" << variable.name
-             << "` not found\n";
+      outs() << "❌ " << otherKind << " live range for " << variable
+             << " not found\n";
       ++neValues;
       continue;
     }
@@ -469,8 +467,8 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     auto otherAssnLookup =
         otherRange.find({currentAssn->startLine, currentAssn->startColumn});
     if (otherAssnLookup == otherRange.end()) {
-      outs() << "❌ " << otherKind << " live range for `" << variable.name
-             << "` at src line " << currentAssn->startLine << ", column "
+      outs() << "❌ " << otherKind << " live range for " << variable
+             << " at src line " << currentAssn->startLine << ", column "
              << currentAssn->startColumn << " not found\n";
       ++neValues;
       continue;
@@ -484,12 +482,12 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     const auto &currentSymValue = currentAssn->evaluate();
     const auto &otherSymValue = otherAssn->evaluate();
     if (!currentSymValue) {
-      outs() << "❌ " << currentKind << " `" << variable.name << "` ";
+      outs() << "❌ " << currentKind << " " << variable << " ";
       outs() << "assn " << *currentAssn << " has no symbolic value ";
       outs() << "from " << currentAssn->producers << "\n";
     }
     if (!otherSymValue) {
-      outs() << "❌ " << otherKind << " `" << variable.name << "` ";
+      outs() << "❌ " << otherKind << " " << variable << " ";
       outs() << "assn " << *otherAssn << " has no symbolic value ";
       outs() << "from " << otherAssn->producers << "\n";
     }
@@ -498,7 +496,7 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
       continue;
     }
 
-    KLEE_DEBUG(dbgs() << "Checking equivalence of `" << variable.name << "` "
+    KLEE_DEBUG(dbgs() << "Checking equivalence of " << variable << " "
                       << "from\n"
                       << "assn " << *currentAssn << "\n"
                       << currentAssn->producers << "\n"
@@ -706,14 +704,12 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
       const auto &afterRangeLookup = afterVToRangeToA.find(variable);
 
       if (beforeRangeLookup == beforeVToRangeToA.end()) {
-        outs() << "❌ Before live ranges for `" << variable.name
-               << "` not found\n";
+        outs() << "❌ Before live ranges for " << variable << " not found\n";
         ++uncovered;
         continue;
       }
       if (afterRangeLookup == afterVToRangeToA.end()) {
-        outs() << "❌ After live ranges for `" << variable.name
-               << "` not found\n";
+        outs() << "❌ After live ranges for " << variable << " not found\n";
         ++uncovered;
         continue;
       }
@@ -725,7 +721,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
       assert(beforeRange.stop() == MAX && "Before live range terminates early");
       assert(afterRange.stop() == MAX && "After live range terminates early");
       if (beforeRange.start() != afterRange.start()) {
-        outs() << "❌ Live ranges for `" << variable.name << "` don't match: ["
+        outs() << "❌ Live ranges for " << variable << " don't match: ["
                << beforeRange.start().line << "." << beforeRange.start().column
                << ",∞) vs. [" << afterRange.start().line << "."
                << afterRange.start().column << ",∞)\n";

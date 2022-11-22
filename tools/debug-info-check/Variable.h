@@ -71,6 +71,13 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
   return out;
 }
 
+inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
+                                     const Variable &variable) {
+  out << "`" << variable.name << "` ";
+  out << "(decl src line " << variable.declLine << ")";
+  return out;
+}
+
 using Exprs = llvm::SmallVector<klee::ref<klee::Expr>, 2>;
 
 struct Assignment {
