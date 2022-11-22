@@ -141,6 +141,17 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
 
   auto &assignments = varToAs[variable];
 
+  // Check if this redundantly specifies the previous assignment
+  // Keeping redundant assignments adds no new info and can cause `IntervalMap`
+  // to assert by trying to store an empty interval.
+  if (assignments.size()) {
+    const auto &lastAssignment = assignments.back();
+    if (lastAssignment.producers == producers) {
+      KLEE_DEBUG(dbgs() << "  Value is same as last assignment, skipping\n");
+      return true;
+    }
+  }
+
   // TODO: Rethink this phi handling...
   // For phi nodes, check if they redundantly match the previous assignments for
   // all incoming edges. This may involve traversing multiple predecessor
