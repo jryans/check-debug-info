@@ -190,11 +190,6 @@ collectValues(StringRef runtimeDir, std::unique_ptr<llvm::Module> mainModule,
   const std::string &moduleTriple = mainModule->getTargetTriple();
   std::string hostTriple = llvm::sys::getDefaultTargetTriple();
 
-  if (moduleTriple != hostTriple)
-    klee_warning("Module and host target triples do not match: '%s' != '%s'\n"
-                 "This may cause unexpected crashes or assertion violations.",
-                 moduleTriple.c_str(), hostTriple.c_str());
-
   // Detect architecture
   std::string optSuffix = "64"; // Fall back to 64bit
   if (moduleTriple.find("i686") != std::string::npos ||

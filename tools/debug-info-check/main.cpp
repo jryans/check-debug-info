@@ -758,26 +758,34 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   // Collect symbolic values for before module
   std::unique_ptr<Interpreter> beforeInterpreter;
   {
+    KLEE_DEBUG(dbgs() << "#### Before values\n\n");
     SmallString<128> outputDir = createOutputDir(beforeFile, functionName);
     beforeInterpreter =
         collectValues(runtimeDir, std::move(beforeModule),
                       beforeDefinition.getName(), outputDir, beforeFlatVAs);
+    KLEE_DEBUG(dbgs() << "\n");
   }
 
   // Collect symbolic values for after module
   std::unique_ptr<Interpreter> afterInterpreter;
   {
+    KLEE_DEBUG(dbgs() << "#### After values\n\n");
     SmallString<128> outputDir = createOutputDir(afterFile, functionName);
     afterInterpreter =
         collectValues(runtimeDir, std::move(afterModule),
                       afterDefinition.getName(), outputDir, afterFlatVAs);
+    KLEE_DEBUG(dbgs() << "\n");
   }
 
   // Check before assignments against after assignments on the same source line
+  outs() << "#### Check before against after\n\n";
   summary &= checkValues("Before", beforeFlatVAs, "After", afterVToRangeToA);
+
+  outs() << "\n";
 
   // TODO: Deduplicate pairings already checked by the previous direction
   // Check after assignments against before assignments on the same source line
+  outs() << "#### Check after against before\n\n";
   summary &= checkValues("After", afterFlatVAs, "Before", beforeVToRangeToA);
 
   outs() << "\n"; // ### Symbolic values
@@ -844,6 +852,8 @@ int main(int argc, char **argv) {
   for (const Function &beforeDefinition : beforeDefinitions) {
     summary &= checkFunction(ctx, runtimeDir, beforeDefinition.getName());
   }
+
+  outs() << "## Summary\n\n";
 
   if (summary) {
     outs() << "🎉 All consistency checks passed\n";

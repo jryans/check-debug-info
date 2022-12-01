@@ -26,7 +26,6 @@ Solver *createCoreSolver(CoreSolverType cst) {
   switch (cst) {
   case STP_SOLVER:
 #ifdef ENABLE_STP
-    klee_message("Using STP solver backend");
     return new STPSolver(UseForkedCoreSolver, CoreSolverOptimizeDivides);
 #else
     klee_message("Not compiled with STP support");
@@ -34,7 +33,6 @@ Solver *createCoreSolver(CoreSolverType cst) {
 #endif
   case METASMT_SOLVER:
 #ifdef ENABLE_METASMT
-    klee_message("Using MetaSMT solver backend");
     return createMetaSMTSolver();
 #else
     klee_message("Not compiled with MetaSMT support");
@@ -44,7 +42,6 @@ Solver *createCoreSolver(CoreSolverType cst) {
     return createDummySolver();
   case Z3_SOLVER:
 #ifdef ENABLE_Z3
-    klee_message("Using Z3 solver backend");
     return new Z3Solver();
 #else
     klee_message("Not compiled with Z3 support");
