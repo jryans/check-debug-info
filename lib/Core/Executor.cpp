@@ -4588,8 +4588,13 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
                                           llvm::Type *valueType,
                                           const llvm::Twine &valueName) {
   assert(!valueType->isVoidTy() && !valueType->isFunctionTy() &&
-         !valueType->isArrayTy() && !valueType->isVectorTy() &&
+         !valueType->isVectorTy() &&
          "Unexpected type when building symbolic value");
+  if (const auto *arrayType = dyn_cast<ArrayType>(valueType)) {
+    auto *containedType = arrayType->getElementType();
+    assert(!containedType->isPointerTy() &&
+           "Unexpected pointer inside array type");
+  }
 
   // Allocate memory to hold symbolic value
   const unsigned storeSizeBytes =
