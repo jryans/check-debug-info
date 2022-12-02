@@ -3788,7 +3788,7 @@ std::string Executor::getAddressInfo(ExecutionState &state,
     assert(success && "FIXME: Unhandled solver failure");
     (void) success;
     example = value->getZExtValue();
-    info << "\texample: " << example << "\n";
+    info << "\texample: " << format("0x%08zX", example) << "\n";
     std::pair<ref<Expr>, ref<Expr>> res =
         solver->getRange(state.constraints, address, state.queryMetaData);
     info << "\trange: [" << res.first << ", " << res.second <<"]\n";
@@ -3803,7 +3803,7 @@ std::string Executor::getAddressInfo(ExecutionState &state,
     const MemoryObject *mo = lower->first;
     std::string alloc_info;
     mo->getAllocInfo(alloc_info);
-    info << "object at " << mo->address
+    info << "object at " << format("0x%08zX", mo->address)
          << " of size " << mo->size << "\n"
          << "\t\t" << alloc_info << "\n";
   }
@@ -3816,7 +3816,7 @@ std::string Executor::getAddressInfo(ExecutionState &state,
       const MemoryObject *mo = lower->first;
       std::string alloc_info;
       mo->getAllocInfo(alloc_info);
-      info << "object at " << mo->address 
+      info << "object at " << format("0x%08zX", mo->address)
            << " of size " << mo->size << "\n"
            << "\t\t" << alloc_info << "\n";
     }
