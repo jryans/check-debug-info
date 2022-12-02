@@ -3845,6 +3845,9 @@ void Executor::terminateState(ExecutionState &state) {
     processTree->remove(state.ptreeNode);
     delete &state;
   }
+
+  if (DebugExecutionTrace)
+    *debugExecTraceFile << "Terminated s" << state.getID() << "\n";
 }
 
 static bool shouldWriteTest(const ExecutionState &state) {
@@ -3875,6 +3878,10 @@ void Executor::terminateStateOnExit(ExecutionState &state) {
 
 void Executor::terminateStateEarly(ExecutionState &state, const Twine &message,
                                    StateTerminationType terminationType) {
+  if (DebugExecutionTrace)
+    *debugExecTraceFile << "Terminating s" << state.getID()
+                        << " early: " << message << "\n";
+
   if ((terminationType <= StateTerminationType::EXECERR &&
        shouldWriteTest(state)) ||
       (AlwaysOutputSeeds && seedMap.count(&state))) {
@@ -3973,6 +3980,10 @@ void Executor::terminateStateOnError(ExecutionState &state,
     std::string info_str = info.str();
     if (!info_str.empty())
       msg << "Info: \n" << info_str;
+
+    if (DebugExecutionTrace)
+      *debugExecTraceFile << "Terminating s" << state.getID()
+                          << " on error: " << msg.str();
 
     const std::string ext = terminationTypeFileExtension(terminationType);
     // use user provided suffix from klee_report_error()
