@@ -84,6 +84,13 @@ ref<Expr> Assignment::evaluate() {
   const auto *variable = varIntrinsic->getVariable();
   ExprBuilder *builder = createDefaultExprBuilder();
 
+  if (producedSymbolicValues.size() != producers.size()) {
+    KLEE_DEBUG(dbgs() << "Expected " << producers.size()
+                      << " symbolic value(s), got "
+                      << producedSymbolicValues.size() << "\n");
+    return nullptr;
+  }
+
   // Empty expression
   const auto *expr = varIntrinsic->getExpression();
   if (!expr->getNumElements()) {
