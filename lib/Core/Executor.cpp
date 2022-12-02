@@ -1171,7 +1171,7 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
     if (DebugExecutionTrace)
       *debugExecTraceFile << "Forking (reason "
                           << std::to_string(static_cast<uint8_t>(reason))
-                          << "), state " << falseState->id << " created\n";
+                          << "), s" << falseState->id << " created\n";
 
     if (it != seedMap.end()) {
       std::vector<SeedInfo> seeds = it->second;
@@ -1458,14 +1458,14 @@ void Executor::printTraceBeforeExecution(ExecutionState &state,
   llvm::raw_ostream *stream = &debugLogBuffer;
 
   // TODO: Use consistent spacing for all lines
-  (*stream) << ki->getSourceLocation() << ' ';
-  (*stream) << "ll" << ki->info->assemblyLine << ' ';
-  (*stream) << 's' << state.getID() << '\n';
+  *stream << ki->getSourceLocation() << ' ';
+  *stream << "ll" << ki->info->assemblyLine << ' ';
+  *stream << 's' << state.getID() << '\n';
   // Instruction includes 2 space prefix for some reason...
-  (*stream) << *(ki->inst) << '\n';
+  *stream << *(ki->inst) << '\n';
 
   // Print state constraints (includes trailing new line)
-  (*stream) << "  const: " << state.constraints;
+  *stream << "  const: " << state.constraints;
 
   for (
     unsigned int operandIndex = 0;
@@ -1479,12 +1479,12 @@ void Executor::printTraceBeforeExecution(ExecutionState &state,
     }
     const Cell &operand = eval(ki, operandIndex, state);
     if (operand.value) {
-      (*stream) << "  oper" << operandIndex << ": " << operand.value << '\n';
+      *stream << "  oper" << operandIndex << ": " << operand.value << '\n';
     }
   }
 
   debugLogBuffer.flush();
-  (*debugExecTraceFile) << debugLogBuffer.str();
+  *debugExecTraceFile << debugLogBuffer.str();
   debugExecTraceFile->flush();
   debugBufferString = "";
 }
@@ -1494,6 +1494,9 @@ void Executor::printTraceAfterExecution(ExecutionState &state,
   if (!DebugExecutionTrace)
     return;
 
+  // Borrowing a few bits from printDebugInstructions for now...
+  llvm::raw_ostream *stream = &debugLogBuffer;
+
   const unsigned int opcode = ki->inst->getOpcode();
   if (
     opcode == Instruction::Ret ||
@@ -1502,11 +1505,10 @@ void Executor::printTraceAfterExecution(ExecutionState &state,
     opcode == Instruction::Switch
   ) {
     // TODO: Handle control flow...?
+    // Separate instructions visually
+    *stream << '\n';
     return;
   }
-
-  // Borrowing a few bits from printDebugInstructions for now...
-  llvm::raw_ostream *stream = &debugLogBuffer;
 
   // TODO: Add more specialised logging for memory ops etc.
 
@@ -1514,12 +1516,15 @@ void Executor::printTraceAfterExecution(ExecutionState &state,
   if (opcode != Instruction::Call && opcode != Instruction::Invoke) {
     const Cell &dest = getDestCell(state, ki);
     if (dest.value) {
-      (*stream) << "  dest = " << dest.value << '\n';
+      *stream << "  dest = " << dest.value << '\n';
     }
   }
 
+  // Separate instructions visually
+  *stream << '\n';
+
   debugLogBuffer.flush();
-  (*debugExecTraceFile) << debugLogBuffer.str();
+  *debugExecTraceFile << debugLogBuffer.str();
   debugExecTraceFile->flush();
   debugBufferString = "";
 }
@@ -2361,7 +2366,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         if (isFirstCovered && isSecondCovered) {
           if (DebugExecutionTrace)
             *debugExecTraceFile << "Both blocks covered, ending state\n";
-          terminateStateEarly(state, "Both branch targets covered.",
+          terminateStateEarly(state, "Both branch targets covered",
                               StateTerminationType::BranchTargetsCovered);
           break;
         }
