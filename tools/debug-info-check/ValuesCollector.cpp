@@ -68,6 +68,10 @@ public:
 
   void processTestCase(const ExecutionState &state, const char *err,
                        const char *suffix) override {}
+
+private:
+  ref<Expr> resolvePointers(ExecutionState &state, const Value *producer,
+                            ref<Expr> symbolicValue);
 };
 
 std::string VCHandler::getOutputFilename(const std::string &filename) {
@@ -135,24 +139,6 @@ void VCHandler::recordValue(ExecutionState &state, const Instruction *user,
   if (!symbolicValue)
     return;
 
-  // Find the associated `MemoryObject` for concrete pointers
-  if (producer->getType()->isPointerTy()) {
-    if (auto *address = dyn_cast<klee::ConstantExpr>(symbolicValue)) {
-      ObjectPair op;
-      assert(state.addressSpace.resolveOne(address, op) &&
-             "Concrete pointer not bound to MemoryObject");
-      const auto *memory = op.first;
-      ref<Expr> offset = memory->getOffsetExpr(address);
-      KLEE_DEBUG(dbgs() << "Concrete pointer resolves to " << memory->name
-                        << ", offset " << offset << "\n");
-      // TODO: Produce human-readable expressions instead of hash codes
-      auto hash = hash_combine(memory->name, offset->computeHash());
-      symbolicValue = klee::ConstantExpr::create(hash, Expr::Int64);
-      KLEE_DEBUG(dbgs() << "Replaced concrete pointer with hash "
-                        << symbolicValue << "\n");
-    }
-  }
-
   // Look for assignments matching the user
   // TODO: Gather all users up front first for faster filtering...?
   const auto matchingAssignments =
@@ -160,6 +146,8 @@ void VCHandler::recordValue(ExecutionState &state, const Instruction *user,
         const auto *assignment = pair.second;
         return assignment->user == user;
       });
+
+  bool resolved = false;
 
   for (VA &pair : matchingAssignments) {
     const auto &var = pair.first;
@@ -174,12 +162,42 @@ void VCHandler::recordValue(ExecutionState &state, const Instruction *user,
         continue;
       assert(i == assignment->producedSymbolicValues.size() &&
              "Producers collected out of order");
+      if (!resolved) {
+        symbolicValue = resolvePointers(state, producer, symbolicValue);
+        resolved = true;
+      }
       assignment->producedSymbolicValues.push_back(symbolicValue);
       KLEE_DEBUG(dbgs() << "Collected value for `" << var.name << "`\n");
       KLEE_DEBUG(dbgs() << printValue(*producer) << "\n");
       KLEE_DEBUG(dbgs() << symbolicValue << "\n");
     }
   }
+}
+
+ref<Expr> VCHandler::resolvePointers(ExecutionState &state,
+                                     const Value *producer,
+                                     ref<Expr> symbolicValue) {
+  if (!producer->getType()->isPointerTy())
+    return symbolicValue;
+
+  // Find the associated `MemoryObject` for concrete pointers
+  if (auto *address = dyn_cast<klee::ConstantExpr>(symbolicValue)) {
+    ObjectPair op;
+    assert(state.addressSpace.resolveOne(address, op) &&
+           "Concrete pointer not bound to MemoryObject");
+    const auto *memory = op.first;
+    ref<Expr> offset = memory->getOffsetExpr(address);
+    KLEE_DEBUG(dbgs() << "Concrete pointer resolves to " << memory->name
+                      << ", offset " << offset << "\n");
+    // TODO: Produce human-readable expressions instead of hash codes
+    auto hash = hash_combine(memory->name, offset->computeHash());
+    ref<Expr> hashValue = klee::ConstantExpr::create(hash, Expr::Int64);
+    KLEE_DEBUG(dbgs() << "Replaced concrete pointer with hash " << hashValue
+                      << "\n");
+    return hashValue;
+  }
+
+  return symbolicValue;
 }
 
 std::unique_ptr<Interpreter>
