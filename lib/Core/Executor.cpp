@@ -4394,8 +4394,14 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     LoadInst *inst = cast<LoadInst>(target->inst);
     // For volatile loads, build a symbolic value
     auto *instType = inst->getType();
-    const ObjectState *argState = buildSymbolicValue(
-        state, inst, instType, inst->getPointerOperand()->getName());
+    const llvm::Value* operand = inst->getPointerOperand();
+    std::string operandName = std::string(operand->getName());
+    if (operandName.empty()) {
+      // TODO: Add more detail about the input values
+      operandName = "anon_ptr";
+    }
+    const ObjectState *argState =
+        buildSymbolicValue(state, inst, instType, operandName);
     // Bind value as result of load from new symbolic memory
     const unsigned instTypeSizeBits =
         kmodule->targetData->getTypeSizeInBits(instType);
