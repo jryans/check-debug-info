@@ -41,6 +41,7 @@
 #include "klee/Module/KCallable.h"
 #include "klee/Module/KInstruction.h"
 #include "klee/Module/KModule.h"
+#include "klee/Module/Printing.h"
 #include "klee/Solver/Common.h"
 #include "klee/Solver/SolverCmdLine.h"
 #include "klee/Solver/SolverStats.h"
@@ -1462,7 +1463,7 @@ void Executor::printTraceBeforeExecution(ExecutionState &state,
   *stream << "ll" << ki->info->assemblyLine << ' ';
   *stream << 's' << state.getID() << '\n';
   // Instruction includes 2 space prefix for some reason...
-  *stream << *(ki->inst) << '\n';
+  *stream << printInstruction(*(ki->inst)) << '\n';
 
   // Print state constraints (includes trailing new line)
   *stream << "  const: " << state.constraints;
