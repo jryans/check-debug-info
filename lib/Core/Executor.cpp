@@ -512,12 +512,12 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
   }
 
   if (DebugExecutionTrace) {
-    std::string debugExecTraceFileName =
+    std::string execTraceTextName =
         interpreterHandler->getOutputFilename("execution.txt");
     std::string error;
-    debugExecTraceFile = klee_open_output_file(debugExecTraceFileName, error);
-    if (!debugExecTraceFile) {
-      klee_error("Could not open file %s : %s", debugExecTraceFileName.c_str(),
+    execTraceText = klee_open_output_file(execTraceTextName, error);
+    if (!execTraceText) {
+      klee_error("Could not open file %s : %s", execTraceTextName.c_str(),
                  error.c_str());
     }
   }
@@ -907,9 +907,9 @@ void Executor::branch(ExecutionState &state,
     for (unsigned i=0; i<N; ++i) {
       if (i == next) {
         if (DebugExecutionTrace)
-          *debugExecTraceFile << "Unable to fork (reason "
-                              << std::to_string(static_cast<uint8_t>(reason))
-                              << "), branch " << i << " picked at random!\n";
+          *execTraceText << "Unable to fork (reason "
+                         << std::to_string(static_cast<uint8_t>(reason))
+                         << "), branch " << i << " picked at random!\n";
         result.push_back(&state);
       } else {
         result.push_back(nullptr);
@@ -1087,16 +1087,16 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
         TimerStatIncrementer timer(stats::forkTime);
         if (theRNG.getBool()) {
           if (DebugExecutionTrace)
-            *debugExecTraceFile << "Unable to fork (reason "
-                                << std::to_string(static_cast<uint8_t>(reason))
-                                << "), true branch picked at random!\n";
+            *execTraceText << "Unable to fork (reason "
+                           << std::to_string(static_cast<uint8_t>(reason))
+                           << "), true branch picked at random!\n";
           addConstraint(current, condition);
           res = Solver::True;        
         } else {
           if (DebugExecutionTrace)
-            *debugExecTraceFile << "Unable to fork (reason "
-                                << std::to_string(static_cast<uint8_t>(reason))
-                                << "), false branch picked at random!\n";
+            *execTraceText << "Unable to fork (reason "
+                           << std::to_string(static_cast<uint8_t>(reason))
+                           << "), false branch picked at random!\n";
           addConstraint(current, Expr::createIsZero(condition));
           res = Solver::False;
         }
@@ -1169,9 +1169,9 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
     addedStates.push_back(falseState);
 
     if (DebugExecutionTrace)
-      *debugExecTraceFile << "Forking (reason "
-                          << std::to_string(static_cast<uint8_t>(reason))
-                          << "), s" << falseState->id << " created\n";
+      *execTraceText << "Forking (reason "
+                     << std::to_string(static_cast<uint8_t>(reason)) << "), s"
+                     << falseState->id << " created\n";
 
     if (it != seedMap.end()) {
       std::vector<SeedInfo> seeds = it->second;
@@ -1484,8 +1484,8 @@ void Executor::printTraceBeforeExecution(ExecutionState &state,
   }
 
   debugLogBuffer.flush();
-  *debugExecTraceFile << debugLogBuffer.str();
-  debugExecTraceFile->flush();
+  *execTraceText << debugLogBuffer.str();
+  execTraceText->flush();
   debugBufferString = "";
 }
 
@@ -1524,8 +1524,8 @@ void Executor::printTraceAfterExecution(ExecutionState &state,
   *stream << '\n';
 
   debugLogBuffer.flush();
-  *debugExecTraceFile << debugLogBuffer.str();
-  debugExecTraceFile->flush();
+  *execTraceText << debugLogBuffer.str();
+  execTraceText->flush();
   debugBufferString = "";
 }
 
@@ -2020,9 +2020,8 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
           return f->getName().equals(name);
         })) {
       if (DebugExecutionTrace)
-        *debugExecTraceFile
-            << "Function independent mode active, skipping call to `"
-            << f->getName() << "`…\n";
+        *execTraceText << "Function independent mode active, skipping call to `"
+                       << f->getName() << "`…\n";
 
       // If there's a return value, make it symbolic
       Type *returnType = f->getReturnType();
@@ -2365,20 +2364,20 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         bool isSecondCovered = statsTracker->isInstructionCovered(secondEntry);
         if (isFirstCovered && isSecondCovered) {
           if (DebugExecutionTrace)
-            *debugExecTraceFile << "Both blocks covered, ending state\n";
+            *execTraceText << "Both blocks covered, ending state\n";
           terminateStateEarly(state, "Both branch targets covered",
                               StateTerminationType::BranchTargetsCovered);
           break;
         }
         if (!isFirstCovered && isSecondCovered) {
           if (DebugExecutionTrace)
-            *debugExecTraceFile << "Only first block uncovered, jumping...\n";
+            *execTraceText << "Only first block uncovered, jumping...\n";
           transferToBasicBlock(firstBlock, bi->getParent(), state);
           break;
         }
         if (isFirstCovered && !isSecondCovered) {
           if (DebugExecutionTrace)
-            *debugExecTraceFile << "Only second block uncovered, jumping...\n";
+            *execTraceText << "Only second block uncovered, jumping...\n";
           transferToBasicBlock(secondBlock, bi->getParent(), state);
           break;
         }
@@ -3852,7 +3851,7 @@ void Executor::terminateState(ExecutionState &state) {
   }
 
   if (DebugExecutionTrace)
-    *debugExecTraceFile << "Terminated s" << state.getID() << "\n";
+    *execTraceText << "Terminated s" << state.getID() << "\n";
 }
 
 static bool shouldWriteTest(const ExecutionState &state) {
@@ -3884,8 +3883,8 @@ void Executor::terminateStateOnExit(ExecutionState &state) {
 void Executor::terminateStateEarly(ExecutionState &state, const Twine &message,
                                    StateTerminationType terminationType) {
   if (DebugExecutionTrace)
-    *debugExecTraceFile << "Terminating s" << state.getID()
-                        << " early: " << message << "\n";
+    *execTraceText << "Terminating s" << state.getID() << " early: " << message
+                   << "\n";
 
   if ((terminationType <= StateTerminationType::EXECERR &&
        shouldWriteTest(state)) ||
@@ -3987,8 +3986,8 @@ void Executor::terminateStateOnError(ExecutionState &state,
       msg << "Info: \n" << info_str;
 
     if (DebugExecutionTrace)
-      *debugExecTraceFile << "Terminating s" << state.getID()
-                          << " on error: " << msg.str();
+      *execTraceText << "Terminating s" << state.getID()
+                     << " on error: " << msg.str();
 
     const std::string ext = terminationTypeFileExtension(terminationType);
     // use user provided suffix from klee_report_error()
@@ -4631,8 +4630,8 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     klee_error("Could not allocate memory for value");
 
   if (DebugExecutionTrace)
-    *debugExecTraceFile << "Building symbolic value for " << *valueType << " "
-                        << valueName << " (" << storeSizeBytes * 8 << "b)…\n";
+    *execTraceText << "Building symbolic value for " << *valueType << " "
+                   << valueName << " (" << storeSizeBytes * 8 << "b)…\n";
 
   // Create object state instance from the new memory
   assert(!valueName.str().empty() && "Unexpected empty symbolic value name");
@@ -4688,8 +4687,8 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
   if (DebugExecutionTrace) {
     const unsigned typeSizeBits =
         kmodule->targetData->getTypeSizeInBits(valueType);
-    *debugExecTraceFile << "Built symbolic value for " << valueName << ": "
-                        << valueState->read(0, typeSizeBits) << "\n";
+    *execTraceText << "Built symbolic value for " << valueName << ": "
+                   << valueState->read(0, typeSizeBits) << "\n";
   }
 
   return valueState;
@@ -4699,8 +4698,8 @@ void Executor::enterIndependentFunction(ExecutionState &state, KFunction *kf) {
   const Function *f = kf->function;
 
   if (DebugExecutionTrace)
-    *debugExecTraceFile << "Entering function " << kf->getName()
-                        << ", making args symbolic…\n";
+    *execTraceText << "Entering function " << kf->getName()
+                   << ", making args symbolic…\n";
 
   // Treat each argument as if it were made symbolic
   for (unsigned k = 0, numArgs = kf->numArgs; k < numArgs; ++k) {
@@ -4744,8 +4743,8 @@ void Executor::runFunctionTeardown() {
 
   if (debugInstFile)
     debugInstFile->flush();
-  if (debugExecTraceFile)
-    debugExecTraceFile->flush();
+  if (execTraceText)
+    execTraceText->flush();
 }
 
 void Executor::runFunction(Function *f) {

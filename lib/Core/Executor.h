@@ -195,7 +195,7 @@ private:
   std::unique_ptr<llvm::raw_ostream> debugInstFile;
 
   /// File to print execution trace to
-  std::unique_ptr<llvm::raw_ostream> debugExecTraceFile;
+  std::unique_ptr<llvm::raw_ostream> execTraceText;
 
   // @brief Buffer used by logBuffer
   std::string debugBufferString;
