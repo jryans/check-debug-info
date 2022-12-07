@@ -7,10 +7,10 @@
 namespace klee {
 
 struct ExecutionEvent {
+  uint32_t stateID;
   std::string sourceLocation;
   unsigned int assemblyLine;
-  uint32_t stateID;
-  std::string instruction;
+  std::string assemblyText;
   llvm::SmallVector<std::string, 4> operands;
   std::string result = "<no value>";
   bool assignment = false;
@@ -23,10 +23,10 @@ namespace yaml {
 
 template <> struct MappingTraits<klee::ExecutionEvent> {
   static void mapping(IO &io, klee::ExecutionEvent &event) {
+    io.mapRequired("stateID", event.stateID);
     io.mapRequired("sourceLocation", event.sourceLocation);
     io.mapRequired("assemblyLine", event.assemblyLine);
-    io.mapRequired("stateID", event.stateID);
-    io.mapRequired("instruction", event.instruction);
+    io.mapRequired("assemblyText", event.assemblyText);
     io.mapRequired("operands", event.operands);
     io.mapOptional("result", event.result, "<no value>");
     io.mapOptional("assignment", event.assignment, false);
