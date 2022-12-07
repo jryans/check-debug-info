@@ -27,6 +27,7 @@
 #include "klee/Config/Version.h"
 #include "klee/Core/Context.h"
 #include "klee/Core/ExecutionState.h"
+#include "klee/Core/ExecutionTrace.h"
 #include "klee/Core/Interpreter.h"
 #include "klee/Core/Memory.h"
 #include "klee/Expr/ArrayExprOptimizer.h"
@@ -84,6 +85,7 @@
 #else
 typedef unsigned TypeSize;
 #endif
+#include "llvm/Support/YAMLTraits.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
@@ -520,6 +522,15 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
     if (!execTraceText) {
       klee_error("Could not open file %s : %s", execTraceTextName.c_str(),
                  error.c_str());
+    }
+    std::string execTraceYAMLName =
+        interpreterHandler->getOutputFilename("execution.yml");
+    execTraceYAMLOS = klee_open_output_file(execTraceYAMLName, error);
+    if (!execTraceYAMLOS) {
+      klee_error("Could not open file %s : %s", execTraceYAMLName.c_str(),
+                 error.c_str());
+    } else {
+      execTraceYAML = std::make_unique<llvm::yaml::Output>(*execTraceYAMLOS);
     }
   }
 }
@@ -1467,6 +1478,8 @@ void Executor::printTraceBeforeExecution(ExecutionState &state,
   // Print state constraints (includes trailing new line)
   *stream << "  const: " << state.constraints;
 
+  llvm::SmallVector<std::string, 4> operands;
+
   for (
     unsigned int operandIndex = 0;
     operandIndex < ki->inst->getNumOperands();
@@ -1479,7 +1492,15 @@ void Executor::printTraceBeforeExecution(ExecutionState &state,
     }
     const Cell &operand = eval(ki, operandIndex, state);
     if (operand.value) {
+      // Write to text directly
       *stream << "  oper" << operandIndex << ": " << operand.value << '\n';
+      // Collect for YAML use below
+      std::string operandStr;
+      llvm::raw_string_ostream operandStream(operandStr);
+      operand.value->print(operandStream);
+      operands.push_back(operandStream.str());
+    } else {
+      operands.push_back("<no value>");
     }
   }
 
@@ -1487,6 +1508,11 @@ void Executor::printTraceBeforeExecution(ExecutionState &state,
   *execTraceText << debugLogBuffer.str();
   execTraceText->flush();
   debugBufferString = "";
+
+  // Prepare structured representation for YAML
+  executionEvent = {ki->getSourceLocation(), ki->info->assemblyLine,
+                    state.getID(), printInstruction(*(ki->inst)),
+                    std::move(operands)};
 }
 
 void Executor::printTraceAfterExecution(ExecutionState &state,
@@ -1507,6 +1533,8 @@ void Executor::printTraceAfterExecution(ExecutionState &state,
     // TODO: Handle control flow...?
     // Separate instructions visually
     *stream << '\n';
+    // Write what we have to YAML
+    *execTraceYAML << executionEvent;
     return;
   }
 
@@ -1516,7 +1544,13 @@ void Executor::printTraceAfterExecution(ExecutionState &state,
   if (opcode != Instruction::Call && opcode != Instruction::Invoke) {
     const Cell &dest = getDestCell(state, ki);
     if (dest.value) {
-      *stream << "  dest = " << dest.value << '\n';
+      // Write to text directly
+      *stream << "  res  = " << dest.value << '\n';
+      // Collect for YAML use below
+      std::string resultStr;
+      llvm::raw_string_ostream resultStream(resultStr);
+      dest.value->print(resultStream);
+      executionEvent.result = resultStream.str();
     }
   }
 
@@ -1527,7 +1561,11 @@ void Executor::printTraceAfterExecution(ExecutionState &state,
   *execTraceText << debugLogBuffer.str();
   execTraceText->flush();
   debugBufferString = "";
+
+  // Write structured version to YAML
+  *execTraceYAML << executionEvent;
 }
+
 
 void Executor::stepInstruction(ExecutionState &state) {
   printDebugInstructions(state);
@@ -4745,6 +4783,8 @@ void Executor::runFunctionTeardown() {
     debugInstFile->flush();
   if (execTraceText)
     execTraceText->flush();
+  if (execTraceYAMLOS)
+    execTraceYAMLOS->flush();
 }
 
 void Executor::runFunction(Function *f) {

@@ -20,6 +20,7 @@
 #include "klee/ADT/RNG.h"
 #include "klee/Core/BranchTypes.h"
 #include "klee/Core/ExecutionState.h"
+#include "klee/Core/ExecutionTrace.h"
 #include "klee/Core/Interpreter.h"
 #include "klee/Core/TerminationTypes.h"
 #include "klee/Expr/ArrayCache.h"
@@ -30,6 +31,7 @@
 #include "klee/System/Time.h"
 
 #include "llvm/ADT/Twine.h"
+#include "llvm/Support/YAMLTraits.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <map>
@@ -194,8 +196,13 @@ private:
   /// File to print executed instructions to
   std::unique_ptr<llvm::raw_ostream> debugInstFile;
 
-  /// File to print execution trace to
+  /// Files to print execution trace to
   std::unique_ptr<llvm::raw_ostream> execTraceText;
+  std::unique_ptr<llvm::raw_ostream> execTraceYAMLOS;
+  std::unique_ptr<llvm::yaml::Output> execTraceYAML;
+
+  /// Temporary execution event for trace
+  ExecutionEvent executionEvent;
 
   // @brief Buffer used by logBuffer
   std::string debugBufferString;
