@@ -26,6 +26,9 @@ std::string printInstruction(const Instruction &instruction) {
   out << instruction;
   out.flush();
 
+  // Trim whitespace on the left (LLVM IR printing indents by default)
+  str.erase(0, 2);
+
   // Inline debug location
   const auto debugLoc = instruction.getDebugLoc();
   if (debugLoc) {

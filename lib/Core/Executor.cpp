@@ -1462,8 +1462,7 @@ void Executor::printTraceBeforeExecution(ExecutionState &state,
   *stream << ki->getSourceLocation() << ' ';
   *stream << "ll" << ki->info->assemblyLine << ' ';
   *stream << 's' << state.getID() << '\n';
-  // Instruction includes 2 space prefix for some reason...
-  *stream << printInstruction(*(ki->inst)) << '\n';
+  *stream << "  " << printInstruction(*(ki->inst)) << '\n';
 
   // Print state constraints (includes trailing new line)
   *stream << "  const: " << state.constraints;

@@ -95,7 +95,7 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
     outs() << "❌ Variable intrinsic without inputs, ";
     outs() << "asm line " << instrInfo.getInfo(*varIntrinsic).assemblyLine
            << "\n";
-    outs() << printInstruction(*varIntrinsic) << "\n";
+    outs() << "  " << printInstruction(*varIntrinsic) << "\n";
     return false;
   }
   for (const auto *producer : producers) {
@@ -103,7 +103,7 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
       outs() << "❌ Variable intrinsic with empty input, ";
       outs() << "asm line " << instrInfo.getInfo(*varIntrinsic).assemblyLine
              << "\n";
-      outs() << printInstruction(*varIntrinsic) << "\n";
+      outs() << "  " << printInstruction(*varIntrinsic) << "\n";
       return false;
     }
     assert((isa<Instruction>(*producer) || isa<Argument>(*producer) ||
@@ -135,7 +135,8 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
   KLEE_DEBUG(dbgs() << "\n");
   for (const auto *producer : producers) {
     if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
-      KLEE_DEBUG(dbgs() << printInstruction(*producerInstruction) << "\n");
+      KLEE_DEBUG(dbgs() << "  " << printInstruction(*producerInstruction)
+                        << "\n");
     }
   }
 
@@ -295,7 +296,7 @@ bool gatherAssignments(const StringRef moduleKind,
     outs() << "❌ " << moduleKind << " variable intrinsic with undef input, ";
     outs() << "asm line " << instrInfo.getInfo(*varIntrinsic).assemblyLine
            << "\n";
-    outs() << printInstruction(*varIntrinsic) << "\n";
+    outs() << "  " << printInstruction(*varIntrinsic) << "\n";
     summary = false;
     return summary;
   }
