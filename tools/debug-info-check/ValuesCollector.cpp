@@ -4,6 +4,7 @@
 #include "klee/ADT/Ref.h"
 #include "klee/Core/AddressSpace.h"
 #include "klee/Core/ExecutionState.h"
+#include "klee/Core/ExecutionTrace.h"
 #include "klee/Core/Interpreter.h"
 #include "klee/Expr/Expr.h"
 #include "klee/Module/Cell.h"
@@ -62,9 +63,11 @@ public:
   void incPathsCompleted() override {}
   void incPathsExplored(std::uint32_t num = 1) override {}
 
-  void visitBeforeExecution(ExecutionState &state, KInstruction *ki) override;
-  void recordValue(ExecutionState &state, const Instruction *user,
-                   const Value *producer, ref<Expr> symbolicValue);
+  void visitBeforeExecution(ExecutionState &state, ExecutionEvent &event,
+                            KInstruction *ki) override;
+  void recordValue(ExecutionState &state, ExecutionEvent &event,
+                   const Instruction *user, const Value *producer,
+                   ref<Expr> symbolicValue);
 
   void processTestCase(const ExecutionState &state, const char *err,
                        const char *suffix) override {}
@@ -95,7 +98,8 @@ VCHandler::openOutputFile(const std::string &filename) {
   return f;
 }
 
-void VCHandler::visitBeforeExecution(ExecutionState &state, KInstruction *ki) {
+void VCHandler::visitBeforeExecution(ExecutionState &state,
+                                     ExecutionEvent &event, KInstruction *ki) {
   const auto *instruction = ki->inst;
 
   // Stores are visited for writes to `dbg.declare` intrinsic targets
@@ -108,7 +112,7 @@ void VCHandler::visitBeforeExecution(ExecutionState &state, KInstruction *ki) {
     if (!producer)
       return;
     ref<Expr> symbolicValue = interpreter->getOperandCell(state, ki, 0).value;
-    recordValue(state, storeInstruction, producer, symbolicValue);
+    recordValue(state, event, storeInstruction, producer, symbolicValue);
   } else if (const auto *valueIntrinsic = dyn_cast<DbgValueInst>(instruction)) {
     for (size_t i = 0, e = valueIntrinsic->getNumVariableLocationOps(); i < e;
          ++i) {
@@ -119,13 +123,14 @@ void VCHandler::visitBeforeExecution(ExecutionState &state, KInstruction *ki) {
       // real operands are shifted over by 1.
       ref<Expr> symbolicValue =
           interpreter->getOperandCell(state, ki, i + 1).value;
-      recordValue(state, valueIntrinsic, producer, symbolicValue);
+      recordValue(state, event, valueIntrinsic, producer, symbolicValue);
     }
   }
 }
 
-void VCHandler::recordValue(ExecutionState &state, const Instruction *user,
-                            const Value *producer, ref<Expr> symbolicValue) {
+void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &event,
+                            const Instruction *user, const Value *producer,
+                            ref<Expr> symbolicValue) {
   assert(user && "Assignment user missing");
   // We currently filter assignments by user (as a way of matching stores).
   // This works okay for stores since they are `void` type (have no IR result),
@@ -167,6 +172,7 @@ void VCHandler::recordValue(ExecutionState &state, const Instruction *user,
         resolved = true;
       }
       assignment->producedSymbolicValues.push_back(symbolicValue);
+      event.assignment = true;
       KLEE_DEBUG(dbgs() << "Collected value for `" << var.name << "`\n");
       KLEE_DEBUG(dbgs() << printValue(*producer) << "\n");
       KLEE_DEBUG(dbgs() << symbolicValue << "\n");

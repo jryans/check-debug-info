@@ -27,6 +27,7 @@ class raw_fd_ostream;
 
 namespace klee {
 struct Cell;
+struct ExecutionEvent;
 class ExecutionState;
 class Interpreter;
 struct KFunction;
@@ -47,8 +48,10 @@ public:
   virtual void incPathsExplored(std::uint32_t num = 1) = 0;
 
   virtual void visitArguments(ExecutionState &state, KFunction *kf) {}
-  virtual void visitBeforeExecution(ExecutionState &state, KInstruction *ki) {}
-  virtual void visitAfterExecution(ExecutionState &state, KInstruction *ki) {}
+  virtual void visitBeforeExecution(ExecutionState &state,
+                                    ExecutionEvent &event, KInstruction *ki) {}
+  virtual void visitAfterExecution(ExecutionState &state, ExecutionEvent &event,
+                                   KInstruction *ki) {}
 
   virtual void processTestCase(const ExecutionState &state,
                                const char *err,

@@ -13,6 +13,7 @@ struct ExecutionEvent {
   std::string instruction;
   llvm::SmallVector<std::string, 4> operands;
   std::string result = "<no value>";
+  bool assignment = false;
 };
 
 } // namespace klee
@@ -28,6 +29,7 @@ template <> struct MappingTraits<klee::ExecutionEvent> {
     io.mapRequired("instruction", event.instruction);
     io.mapRequired("operands", event.operands);
     io.mapOptional("result", event.result, "<no value>");
+    io.mapOptional("assignment", event.assignment, false);
   }
 };
 
