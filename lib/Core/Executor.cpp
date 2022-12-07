@@ -1510,9 +1510,12 @@ void Executor::printTraceBeforeExecution(ExecutionState &state,
   debugBufferString = "";
 
   // Prepare structured representation for YAML
-  executionEvent = {state.getID(), ki->getSourceLocation(),
-                    ki->info->assemblyLine, printInstruction(*(ki->inst)),
-                    std::move(operands)};
+  SourceInfo source = {};
+  if (!ki->info->file.empty())
+    source = {ki->info->file, ki->info->line, ki->info->column};
+  AssemblyInfo assembly = {ki->info->assemblyLine,
+                           printInstruction(*(ki->inst))};
+  executionEvent = {state.getID(), source, assembly, std::move(operands)};
 }
 
 void Executor::printTraceAfterExecution(ExecutionState &state,

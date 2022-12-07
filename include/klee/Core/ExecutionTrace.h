@@ -4,13 +4,30 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/YAMLTraits.h"
 
+#include <tuple>
+
 namespace klee {
+
+struct SourceInfo {
+  std::string file;
+  unsigned int line;
+  unsigned int column;
+
+  bool operator==(const SourceInfo &other) const {
+    return std::tie(file, line, column) ==
+           std::tie(other.file, other.line, other.column);
+  }
+};
+
+struct AssemblyInfo {
+  unsigned int line;
+  std::string text;
+};
 
 struct ExecutionEvent {
   uint32_t stateID;
-  std::string sourceLocation;
-  unsigned int assemblyLine;
-  std::string assemblyText;
+  SourceInfo source = {};
+  AssemblyInfo assembly;
   llvm::SmallVector<std::string, 4> operands;
   std::string result = "<no value>";
   bool assignment = false;
@@ -21,12 +38,26 @@ struct ExecutionEvent {
 namespace llvm {
 namespace yaml {
 
+template <> struct MappingTraits<klee::SourceInfo> {
+  static void mapping(IO &io, klee::SourceInfo &info) {
+    io.mapRequired("file", info.file);
+    io.mapRequired("line", info.line);
+    io.mapRequired("column", info.column);
+  }
+};
+
+template <> struct MappingTraits<klee::AssemblyInfo> {
+  static void mapping(IO &io, klee::AssemblyInfo &info) {
+    io.mapRequired("line", info.line);
+    io.mapRequired("text", info.text);
+  }
+};
+
 template <> struct MappingTraits<klee::ExecutionEvent> {
   static void mapping(IO &io, klee::ExecutionEvent &event) {
     io.mapRequired("stateID", event.stateID);
-    io.mapRequired("sourceLocation", event.sourceLocation);
-    io.mapRequired("assemblyLine", event.assemblyLine);
-    io.mapRequired("assemblyText", event.assemblyText);
+    io.mapOptional("source", event.source, klee::SourceInfo());
+    io.mapRequired("assembly", event.assembly);
     io.mapRequired("operands", event.operands);
     io.mapOptional("result", event.result, "<no value>");
     io.mapOptional("assignment", event.assignment, false);
