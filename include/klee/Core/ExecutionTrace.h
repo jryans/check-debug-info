@@ -4,14 +4,29 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/YAMLTraits.h"
 
+#include <memory>
+#include <string>
 #include <tuple>
+
+namespace llvm {
+class MemoryBuffer;
+class StringRef;
+} // namespace llvm
 
 namespace klee {
 
 struct SourceInfo {
   std::string file;
-  unsigned int line;
-  unsigned int column;
+  unsigned int line = 0;
+  unsigned int column = 0;
+  llvm::StringRef text;
+
+  static std::string lastSourceFile;
+  static std::unique_ptr<llvm::MemoryBuffer> lastSourceFileBuffer;
+  static llvm::SmallVector<llvm::StringRef, 0> lastSourceFileLines;
+
+  SourceInfo(){};
+  SourceInfo(std::string file, unsigned int line, unsigned int column);
 
   bool operator==(const SourceInfo &other) const {
     return std::tie(file, line, column) ==
@@ -20,7 +35,7 @@ struct SourceInfo {
 };
 
 struct AssemblyInfo {
-  unsigned int line;
+  unsigned int line = 0;
   std::string text;
 };
 
@@ -43,6 +58,7 @@ template <> struct MappingTraits<klee::SourceInfo> {
     io.mapRequired("file", info.file);
     io.mapRequired("line", info.line);
     io.mapRequired("column", info.column);
+    io.mapOptional("text", info.text);
   }
 };
 
