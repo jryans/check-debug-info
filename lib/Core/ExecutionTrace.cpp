@@ -23,11 +23,14 @@ SourceInfo::SourceInfo(std::string file, unsigned int line, unsigned int column)
     return;
   }
   // Read source file lines into static storage
-  lastSourceFile = file;
   auto &fileSystem = *llvm::vfs::getRealFileSystem();
   auto bufferOrError = fileSystem.getBufferForFile(file);
-  if (!bufferOrError)
-    klee_error("Unable to load source file");
+  // TODO: Cache errors instead of retrying every time...
+  if (!bufferOrError) {
+    klee_warning("Unable to load source file `%s`", file.c_str());
+    return;
+  }
+  lastSourceFile = file;
   lastSourceFileBuffer = std::move(bufferOrError.get());
   StringRef str(lastSourceFileBuffer->getBufferStart(),
                 lastSourceFileBuffer->getBufferSize());
