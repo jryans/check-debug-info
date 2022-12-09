@@ -1478,7 +1478,7 @@ void Executor::printTraceBeforeExecution(ExecutionState &state,
   // Print state constraints (includes trailing new line)
   *stream << "  const: " << state.constraints;
 
-  llvm::SmallVector<std::string, 4> operands;
+  llvm::SmallVector<ref<Expr>, 4> operands;
 
   for (
     unsigned int operandIndex = 0;
@@ -1494,14 +1494,9 @@ void Executor::printTraceBeforeExecution(ExecutionState &state,
     if (operand.value) {
       // Write to text directly
       *stream << "  oper" << operandIndex << ": " << operand.value << '\n';
-      // Collect for YAML use below
-      std::string operandStr;
-      llvm::raw_string_ostream operandStream(operandStr);
-      operand.value->print(operandStream);
-      operands.push_back(operandStream.str());
-    } else {
-      operands.push_back("<no value>");
     }
+    // Collect for YAML use below
+    operands.push_back(operand.value);
   }
 
   debugLogBuffer.flush();
@@ -1550,10 +1545,7 @@ void Executor::printTraceAfterExecution(ExecutionState &state,
       // Write to text directly
       *stream << "  res  = " << dest.value << '\n';
       // Collect for YAML use below
-      std::string resultStr;
-      llvm::raw_string_ostream resultStream(resultStr);
-      dest.value->print(resultStream);
-      executionEvent.result = resultStream.str();
+      executionEvent.result = dest.value;
     }
   }
 

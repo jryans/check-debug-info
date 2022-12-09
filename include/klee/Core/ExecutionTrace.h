@@ -1,6 +1,9 @@
 #ifndef KLEE_CORE_EXECUTIONTRACE_H
 #define KLEE_CORE_EXECUTIONTRACE_H
 
+#include "klee/ADT/Ref.h"
+#include "klee/Expr/Expr.h"
+
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/YAMLTraits.h"
 
@@ -43,8 +46,8 @@ struct ExecutionEvent {
   uint32_t stateID;
   SourceInfo source = {};
   AssemblyInfo assembly;
-  llvm::SmallVector<std::string, 4> operands;
-  std::string result = "<no value>";
+  llvm::SmallVector<klee::ref<klee::Expr>, 4> operands;
+  klee::ref<klee::Expr> result = {};
   bool assignment = false;
 };
 
@@ -69,13 +72,36 @@ template <> struct MappingTraits<klee::AssemblyInfo> {
   }
 };
 
+template <> struct SequenceElementTraits<klee::ref<klee::Expr>> {
+  static const bool flow = false;
+};
+
+template <> struct ScalarTraits<klee::ref<klee::Expr>> {
+  static void output(const klee::ref<klee::Expr> &value, void *context,
+                     raw_ostream &stream) {
+    if (!value) {
+      stream << "<no value>";
+      return;
+    }
+    stream << value;
+  }
+
+  static StringRef input(StringRef scalar, void *context,
+                         klee::ref<klee::Expr> &value) {
+    assert(false && "Parsing not yet supported");
+    return StringRef();
+  }
+
+  static QuotingType mustQuote(StringRef) { return QuotingType::Single; }
+};
+
 template <> struct MappingTraits<klee::ExecutionEvent> {
   static void mapping(IO &io, klee::ExecutionEvent &event) {
     io.mapRequired("stateID", event.stateID);
     io.mapOptional("source", event.source, klee::SourceInfo());
     io.mapRequired("assembly", event.assembly);
     io.mapRequired("operands", event.operands);
-    io.mapOptional("result", event.result, "<no value>");
+    io.mapOptional("result", event.result);
     io.mapOptional("assignment", event.assignment, false);
   }
 };
