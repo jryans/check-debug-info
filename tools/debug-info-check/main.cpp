@@ -632,11 +632,11 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   const auto afterDefinitionPtr = afterModule->getFunction(functionName);
 
   if (!beforeDefinitionPtr) {
-    outs() << "❌ Before function not found\n";
+    outs() << "❌ Before function not found\n\n";
     return false;
   }
   if (!afterDefinitionPtr) {
-    outs() << "❌ After function not found\n";
+    outs() << "❌ After function not found\n\n";
     return false;
   }
   outs() << "✅ Before and after function names match\n";
