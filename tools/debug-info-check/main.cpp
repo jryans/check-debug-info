@@ -111,13 +111,16 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
            "Unexpected producer type");
   }
 
-  KLEE_DEBUG(dbgs() << userKind << " " << variable << ", ");
+  KLEE_DEBUG(dbgs() << userKind << " " << variable << ", asm line "
+                    << instrInfo.getInfo(*user).assemblyLine << "\n");
+
+  KLEE_DEBUG(dbgs() << "  ");
   if (producers.size() > 1)
     KLEE_DEBUG(dbgs() << "[ ");
   for (const auto *producer : producers) {
     if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
       KLEE_DEBUG(
-          dbgs() << "asm line "
+          dbgs() << printInstruction(*producerInstruction) << ", asm line "
                  << instrInfo.getInfo(*producerInstruction).assemblyLine);
     } else if (const auto *producerArgument = dyn_cast<Argument>(producer)) {
       KLEE_DEBUG(dbgs() << "arg " << producerArgument->getArgNo());
@@ -133,12 +136,6 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
   if (producers.size() > 1)
     KLEE_DEBUG(dbgs() << " ]");
   KLEE_DEBUG(dbgs() << "\n");
-  for (const auto *producer : producers) {
-    if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
-      KLEE_DEBUG(dbgs() << "  " << printInstruction(*producerInstruction)
-                        << "\n");
-    }
-  }
 
   auto &assignments = varToAs[variable];
 
