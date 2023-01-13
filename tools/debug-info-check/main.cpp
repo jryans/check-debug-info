@@ -306,6 +306,10 @@ bool gatherAssignments(const StringRef moduleKind,
       return summary;
     for (const auto *addressUse : address->users()) {
       if (const auto *storeInstruction = dyn_cast<StoreInst>(addressUse)) {
+        // Ensure this is an address operand user
+        // We don't want to track stores of the address in IR-level pointers
+        if (storeInstruction->getPointerOperand() != address)
+          continue;
         const Values producers(1, storeInstruction->getValueOperand());
         summary &=
             addAssignment(instrInfo, declareIntrinsic, variable, "Store to",
