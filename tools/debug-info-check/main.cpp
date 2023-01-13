@@ -107,8 +107,7 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
       return false;
     }
     assert((isa<Instruction>(*producer) || isa<Argument>(*producer) ||
-            isa<GlobalVariable>(*producer) || isa<ConstantInt>(*producer) ||
-            isa<llvm::ConstantExpr>(*producer)) &&
+            isa<GlobalVariable>(*producer) || isa<Constant>(*producer)) &&
            "Unexpected producer type");
   }
 
@@ -125,11 +124,8 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
     } else if (const auto *producerGlobal =
                    dyn_cast<GlobalVariable>(producer)) {
       KLEE_DEBUG(dbgs() << "global " << producerGlobal->getName());
-    } else if (const auto *producerInt = dyn_cast<ConstantInt>(producer)) {
-      KLEE_DEBUG(dbgs() << "value " << producerInt->getValue());
-    } else if (const auto *producerExpr =
-                   dyn_cast<llvm::ConstantExpr>(producer)) {
-      KLEE_DEBUG(dbgs() << "expr " << producerExpr->getOpcodeName());
+    } else if (const auto *producerConstant = dyn_cast<Constant>(producer)) {
+      KLEE_DEBUG(dbgs() << "const " << printValue(*producerConstant));
     }
     if (producer != producers.back())
       KLEE_DEBUG(dbgs() << ", ");
