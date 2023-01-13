@@ -68,8 +68,6 @@ using namespace llvm;
 
 namespace {
 
-cl::OptionCategory debugInfoCheckCategory("Debug info consistency options");
-
 cl::opt<std::string>
     beforeFile(cl::Positional, cl::Required,
                cl::desc("<program (.bc/.ll) before optimisation>"));
@@ -77,6 +75,8 @@ cl::opt<std::string>
 cl::opt<std::string>
     afterFile(cl::Positional, cl::Required,
               cl::desc("<program (.bc/.ll) after optimisation>"));
+
+// cl::OptionCategory debugInfoCheckCategory("Debug info consistency options");
 
 } // namespace
 
