@@ -188,6 +188,11 @@ ref<Expr> VCHandler::resolvePointers(ExecutionState &state,
 
   // Find the associated `MemoryObject` for concrete pointers
   if (auto *address = dyn_cast<klee::ConstantExpr>(symbolicValue)) {
+    // Preserve null pointer values
+    if (address->isZero())
+      return symbolicValue;
+
+    // Build reproducible pointer value from memory object name and offset
     ObjectPair op;
     assert(state.addressSpace.resolveOne(address, op) &&
            "Concrete pointer not bound to MemoryObject");
