@@ -714,15 +714,16 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   // Verify all before live ranges are covered by after ranges
   {
-    size_t covered = 0, uncovered = 0;
+    size_t covered = 0, uncovered = 0, undefined = 0;
 
     for (const auto &variable : beforeVariables) {
       const auto &beforeRangeLookup = beforeVToRangeToA.find(variable);
       const auto &afterRangeLookup = afterVToRangeToA.find(variable);
 
       if (beforeRangeLookup == beforeVToRangeToA.end()) {
-        outs() << "❌ Before live ranges for " << variable << " not found\n";
-        ++uncovered;
+        outs() << "🔔 Before live ranges for " << variable << " not found, "
+               << "variable likely undefined\n";
+        ++undefined;
         continue;
       }
       if (afterRangeLookup == afterVToRangeToA.end()) {
@@ -754,7 +755,8 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
     outs() << (match ? "✅ " : "❌ ");
     outs() << covered << " before live ranges covered, ";
-    outs() << uncovered << " uncovered\n";
+    outs() << uncovered << " uncovered, ";
+    outs() << undefined << " undefined\n";
   }
 
   outs() << "\n"; // ### Assignments
