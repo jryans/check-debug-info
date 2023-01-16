@@ -289,12 +289,16 @@ bool gatherAssignments(const StringRef moduleKind,
   KLEE_DEBUG(dbgs() << moduleKind << " variable " << variable << "\n");
   variables.insert(variable);
 
-  if (varIntrinsic->isUndef()) {
-    outs() << "❌ " << moduleKind << " variable intrinsic with undef input, ";
-    outs() << "asm line " << instrInfo.getInfo(*varIntrinsic).assemblyLine
-           << "\n";
-    outs() << "  " << printInstruction(*varIntrinsic) << "\n";
-    summary = false;
+  // Ignore `undef` intrinsics if we have no other knowledge of this variable
+  // If we have seen the variable, then `undef` may mean "close the live range",
+  // so we should process those like any other value.
+  if (varIntrinsic->isUndef() && varToAs[variable].empty()) {
+    KLEE_DEBUG(dbgs() << moduleKind
+                      << " variable intrinsic with undef input, ");
+    KLEE_DEBUG(dbgs() << "asm line "
+                      << instrInfo.getInfo(*varIntrinsic).assemblyLine
+                      << ", ignoring undefined variable\n");
+    KLEE_DEBUG(dbgs() << "  " << printInstruction(*varIntrinsic) << "\n");
     return summary;
   }
 
