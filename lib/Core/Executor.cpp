@@ -2072,11 +2072,49 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
       assert(!f->isVarArg() &&
              "Function to skip has variable number of arguments");
 
-      // TODO: If there are non-const pointer arguments, make them symbolic
+      // If there are non-const pointer arguments, reset their storage to
+      // symbolic (since the callee may have written something)
       for (unsigned k = 0, numArgs = f->arg_size(); k < numArgs; ++k) {
         const Argument *arg = f->getArg(k);
-        assert(!arg->getType()->isPointerTy() &&
-               "Function to skip has pointer argument");
+        llvm::Type* argType = arg->getType();
+        if (!argType->isPointerTy() || arg->onlyReadsMemory()) continue;
+
+        if (DebugExecutionTrace)
+          *execTraceText << "Resetting storage for non-const pointer argument `"
+                         << arg->getName() << "` to symbolic…\n";
+
+        // Find the associated `MemoryObject` for concrete pointers
+        auto *address = dyn_cast<klee::ConstantExpr>(arguments[k]);
+        assert(address && "Pointer argument has symbolic address");
+        // Preserve null pointer values
+        if (address->isZero()) continue;
+        ObjectPair op;
+        assert(state.addressSpace.resolveOne(address, op) &&
+              "Concrete pointer not bound to MemoryObject");
+        const MemoryObject *memory = op.first;
+        const ObjectState *pointerState = op.second;
+        ref<Expr> offset = memory->getOffsetExpr(address);
+
+        auto *pointeeType = cast<PointerType>(argType)->getElementType();
+        const unsigned pointeeTypeSizeBits =
+          kmodule->targetData->getTypeSizeInBits(pointeeType);
+        if (DebugExecutionTrace)
+          *execTraceText << "Pointee value before reset to symbolic: "
+                         << pointerState->read(offset, pointeeTypeSizeBits)
+                         << "\n";
+
+        // Create a new (fully symbolic) value for the pointee
+        const ObjectState *pointeeState = buildSymbolicValue(
+            state, arg, pointeeType, arg->getName() + ".deref");
+
+        // Write new value to existing pointer's state
+        // It will be retrieved by any future accesses to the pointer's address
+        state.addressSpace.getWriteable(memory, pointerState)
+            ->write(offset, pointeeState->read(0, pointeeTypeSizeBits));
+        if (DebugExecutionTrace)
+          *execTraceText << "Pointee value after reset to symbolic: "
+                         << pointerState->read(offset, pointeeTypeSizeBits)
+                         << "\n";
       }
 
       // TODO: Check for global variable uses...?
