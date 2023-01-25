@@ -19,18 +19,22 @@ SourceInfo::SourceInfo(std::string file, unsigned int line, unsigned int column)
   if (file.empty() || !line)
     return;
   if (lastSourceFile == file) {
+    if (lastSourceFileLines.empty())
+      return;
     text = lastSourceFileLines[line - 1];
     return;
   }
+  lastSourceFile = file;
   // Read source file lines into static storage
   auto &fileSystem = *llvm::vfs::getRealFileSystem();
   auto bufferOrError = fileSystem.getBufferForFile(file);
-  // TODO: Cache errors instead of retrying every time...
   if (!bufferOrError) {
+    // Update static storage even on failure so we only warn occasionally
     klee_warning("Unable to load source file `%s`", file.c_str());
+    lastSourceFileBuffer = nullptr;
+    lastSourceFileLines.clear();
     return;
   }
-  lastSourceFile = file;
   lastSourceFileBuffer = std::move(bufferOrError.get());
   StringRef str(lastSourceFileBuffer->getBufferStart(),
                 lastSourceFileBuffer->getBufferSize());
