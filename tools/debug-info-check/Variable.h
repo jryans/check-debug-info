@@ -35,6 +35,9 @@ struct Variable {
   llvm::StringRef name;
   unsigned int declLine;
 
+  // Imported from optional diagnostics
+  bool unused = false;
+
   bool operator==(const Variable &other) const {
     return std::tie(name, declLine) == std::tie(other.name, other.declLine);
   }

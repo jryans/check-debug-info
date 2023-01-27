@@ -1,3 +1,4 @@
+#include "Diagnostics.h"
 #include "ValuesCollector.h"
 #include "Variable.h"
 
@@ -42,6 +43,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -63,6 +65,7 @@
 using namespace klee;
 using namespace klee::expr;
 using namespace llvm;
+using namespace clang::tooling;
 
 #define DEBUG_TYPE "debug-info-check"
 
@@ -76,7 +79,15 @@ cl::opt<std::string>
     afterFile(cl::Positional, cl::Required,
               cl::desc("<program (.bc/.ll) after optimisation>"));
 
-// cl::OptionCategory debugInfoCheckCategory("Debug info consistency options");
+cl::OptionCategory debugInfoCheckCategory("Debug info consistency options");
+
+cl::opt<std::string> relaxViaDiagnostics(
+    "relax-via-diagnostics",
+    cl::desc(
+        "Downgrades consistency issues in source ranges matching the supplied "
+        "diagnostics YAML file (e.g. from `clang-tidy --export-fixes`) to "
+        "warnings instead of errors (default=disabled)"),
+    cl::cat(debugInfoCheckCategory));
 
 } // namespace
 
@@ -269,9 +280,31 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
   return true;
 }
 
+void applyVariableDiagnostics(const StringRef moduleKind,
+                              const std::vector<Diagnostic> &diagnostics,
+                              Variable &var) {
+  if (diagnostics.empty())
+    return;
+
+  // TODO: Apply more complex diagnostics e.g. by source range
+  auto matchingDiagnostics =
+      make_filter_range(diagnostics, [&](const Diagnostic &d) {
+        const auto &msg = d.message.message;
+        return msg.find("'" + var.name.str() + "'") != std::string::npos &&
+               msg.find("unused") != std::string::npos;
+      });
+  if (!matchingDiagnostics.empty()) {
+    const auto &msg = matchingDiagnostics.begin()->message.message;
+    outs() << "🔔 " << moduleKind << " variable `" << var.name
+           << "` marked unused by diagnostic: " << msg << "\n";
+    var.unused = true;
+  }
+}
+
 bool gatherAssignments(const StringRef moduleKind,
                        const Instruction &instruction,
                        const InstructionInfoTable &instrInfo,
+                       const std::vector<Diagnostic> &diagnostics,
                        VariablesSet &variables, VToAs &varToAs) {
   bool summary = true;
 
@@ -286,6 +319,7 @@ bool gatherAssignments(const StringRef moduleKind,
   assert(diVariable && "Variable intrinsic without a variable");
   Variable variable = {diVariable, diVariable->getName(),
                        diVariable->getLine()};
+  applyVariableDiagnostics(moduleKind, diagnostics, variable);
   KLEE_DEBUG(dbgs() << moduleKind << " variable " << variable << "\n");
   variables.insert(variable);
 
@@ -340,6 +374,7 @@ bool gatherAssignments(const StringRef moduleKind,
 
 bool gatherAssignments(const StringRef moduleKind, const Function &function,
                        const InstructionInfoTable &instrInfo,
+                       const std::vector<Diagnostic> &diagnostics,
                        VariablesSet &variables, VToAs &varToAs) {
   bool summary = true;
 
@@ -357,13 +392,13 @@ bool gatherAssignments(const StringRef moduleKind, const Function &function,
         continue;
       }
     }
-    summary &= gatherAssignments(moduleKind, instruction, instrInfo, variables,
-                                 varToAs);
+    summary &= gatherAssignments(moduleKind, instruction, instrInfo,
+                                 diagnostics, variables, varToAs);
   }
 
   for (const auto &instruction : postProcessIntrinsics) {
-    summary &= gatherAssignments(moduleKind, *instruction, instrInfo, variables,
-                                 varToAs);
+    summary &= gatherAssignments(moduleKind, *instruction, instrInfo,
+                                 diagnostics, variables, varToAs);
   }
 
   return summary;
@@ -462,7 +497,7 @@ SmallVector<std::unique_ptr<Module>, 2> loadModules(LLVMContext &ctx) {
 
 bool checkValues(const StringRef currentKind, const VAs &currentVAs,
                  const StringRef otherKind, VToRangeToA &otherVToRangeToA) {
-  size_t eqValues = 0, neValues = 0;
+  size_t equal = 0, notEqual = 0, unused = 0;
 
   Solver *coreSolver = createCoreSolver(CoreSolverToUse);
   // TODO: Remove these path args...
@@ -474,9 +509,15 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     const Variable &variable = current.first;
     const auto &otherRangeLookup = otherVToRangeToA.find(variable);
     if (otherRangeLookup == otherVToRangeToA.end()) {
-      outs() << "❌ " << otherKind << " live range for " << variable
-             << " not found\n";
-      ++neValues;
+      if (variable.unused) {
+        outs() << "🔔 " << otherKind << " live ranges for (unused) " << variable
+               << " not found\n";
+        ++unused;
+      } else {
+        outs() << "❌ " << otherKind << " live range for " << variable
+               << " not found\n";
+        ++notEqual;
+      }
       continue;
     }
     Assignment *currentAssn = current.second;
@@ -487,7 +528,7 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
       outs() << "❌ " << otherKind << " live range for " << variable
              << " at src line " << currentAssn->startLine << ", column "
              << currentAssn->startColumn << " not found\n";
-      ++neValues;
+      ++notEqual;
       continue;
     }
     Assignment *otherAssn = *otherAssnLookup;
@@ -509,7 +550,7 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
       outs() << "from " << otherAssn->producers << "\n";
     }
     if (!currentSymValue || !otherSymValue) {
-      ++neValues;
+      ++notEqual;
       continue;
     }
 
@@ -534,9 +575,9 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
       if (const auto *otherConstant =
               dyn_cast<klee::ConstantExpr>(otherSymValue)) {
         if (currentConstant->getAPValue() == otherConstant->getAPValue())
-          ++eqValues;
+          ++equal;
         else
-          ++neValues;
+          ++notEqual;
         continue;
       }
     }
@@ -595,9 +636,9 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     }
 
     if (result)
-      ++eqValues;
+      ++equal;
     else
-      ++neValues;
+      ++notEqual;
 
     delete command;
     for (const auto *decl : decls) {
@@ -606,18 +647,21 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     delete parser;
   }
 
-  bool match = !neValues;
+  bool match = !notEqual;
 
   outs() << (match ? "✅ " : "❌ ");
-  outs() << currentKind << " checked against " << otherKind.lower() << ": ";
-  outs() << eqValues << " matching symbolic values, ";
-  outs() << neValues << " mismatched\n";
+  outs() << currentKind << " symbolic values checked against "
+         << otherKind.lower() << "\n";
+  outs() << "  Matching:   " << equal << "\n";
+  outs() << "  Mismatched: " << notEqual << "\n";
+  outs() << "  Unused:     " << unused << "\n";
 
   return match;
 }
 
 bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
-                   StringRef functionName) {
+                   StringRef functionName,
+                   const std::vector<Diagnostic> &diagnostics) {
   bool summary = true;
 
   // KLEE's interpreter currently deletes the modules after running, so we load
@@ -664,7 +708,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   InstructionInfoTable afterInstrInfo(*afterModule);
 
   summary &= gatherAssignments("Before", beforeDefinition, beforeInstrInfo,
-                               beforeVariables, beforeVToAs);
+                               diagnostics, beforeVariables, beforeVToAs);
   generateAssignmentIDs(beforeVariables, beforeVToAs);
   buildLiveRangeToAssignmentMap(beforeVariables, beforeVToAs, beforeVToRangeToA,
                                 rangeMapAllocator);
@@ -672,7 +716,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
     KLEE_DEBUG(dbgs() << "\n");
 
   summary &= gatherAssignments("After", afterDefinition, afterInstrInfo,
-                               afterVariables, afterVToAs);
+                               diagnostics, afterVariables, afterVToAs);
   generateAssignmentIDs(afterVariables, afterVToAs);
   buildLiveRangeToAssignmentMap(afterVariables, afterVToAs, afterVToRangeToA,
                                 rangeMapAllocator);
@@ -714,7 +758,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   // Verify all before live ranges are covered by after ranges
   {
-    size_t covered = 0, uncovered = 0, undefined = 0;
+    size_t covered = 0, uncovered = 0, undefined = 0, unused = 0;
 
     for (const auto &variable : beforeVariables) {
       const auto &beforeRangeLookup = beforeVToRangeToA.find(variable);
@@ -727,8 +771,14 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
         continue;
       }
       if (afterRangeLookup == afterVToRangeToA.end()) {
-        outs() << "❌ After live ranges for " << variable << " not found\n";
-        ++uncovered;
+        if (variable.unused) {
+          outs() << "🔔 After live ranges for (unused) " << variable
+                 << " not found\n";
+          ++unused;
+        } else {
+          outs() << "❌ After live ranges for " << variable << " not found\n";
+          ++uncovered;
+        }
         continue;
       }
 
@@ -753,10 +803,11 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
     bool match = !uncovered;
     summary &= match;
 
-    outs() << (match ? "✅ " : "❌ ");
-    outs() << covered << " before live ranges covered, ";
-    outs() << uncovered << " uncovered, ";
-    outs() << undefined << " undefined\n";
+    outs() << (match ? "✅ " : "❌ ") << "Before live range coverage\n";
+    outs() << "  Covered:   " << covered << "\n";
+    outs() << "  Uncovered: " << uncovered << "\n";
+    outs() << "  Undefined: " << undefined << "\n";
+    outs() << "  Unused:    " << unused << "\n";
   }
 
   outs() << "\n"; // ### Assignments
@@ -824,6 +875,29 @@ int main(int argc, char **argv) {
   auto &beforeModule = bothModules[0];
   auto &afterModule = bothModules[1];
 
+  std::vector<Diagnostic> diagnostics;
+  if (!relaxViaDiagnostics.empty()) {
+    ErrorOr<std::unique_ptr<MemoryBuffer>> bufferErr =
+        MemoryBuffer::getFileOrSTDIN(relaxViaDiagnostics);
+    std::error_code error = bufferErr.getError();
+    if (error) {
+      klee_error("Reading diagnostics file %s failed: %s",
+                 relaxViaDiagnostics.c_str(), error.message().c_str());
+    }
+
+    MemoryBufferRef buffer = bufferErr.get()->getMemBufferRef();
+
+    TranslationUnitDiagnostics tuDiags;
+    llvm::yaml::Input parser(buffer);
+    parser >> tuDiags;
+    error = parser.error();
+    if (error) {
+      klee_error("Parsing diagnostics file %s failed: %s",
+                 relaxViaDiagnostics.c_str(), error.message().c_str());
+    }
+    diagnostics = tuDiags.diagnostics;
+  }
+
   outs() << "## Functions\n\n";
 
   const auto &beforeFunctions = beforeModule->getFunctionList();
@@ -858,7 +932,8 @@ int main(int argc, char **argv) {
   const auto beforeDefinitions =
       make_filter_range(beforeFunctions, functionFilter);
   for (const Function &beforeDefinition : beforeDefinitions) {
-    summary &= checkFunction(ctx, runtimeDir, beforeDefinition.getName());
+    summary &=
+        checkFunction(ctx, runtimeDir, beforeDefinition.getName(), diagnostics);
   }
 
   outs() << "## Summary\n\n";
