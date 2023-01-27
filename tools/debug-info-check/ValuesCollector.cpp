@@ -167,15 +167,15 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &event,
         continue;
       assert(i == assignment->producedSymbolicValues.size() &&
              "Producers collected out of order");
+      KLEE_DEBUG(dbgs() << "Collected value for `" << var.name << "`\n");
       if (!resolved) {
         symbolicValue = resolvePointers(state, producer, symbolicValue);
         resolved = true;
       }
       assignment->producedSymbolicValues.push_back(symbolicValue);
       event.assignment = true;
-      KLEE_DEBUG(dbgs() << "Collected value for `" << var.name << "`\n");
-      KLEE_DEBUG(dbgs() << printValue(*producer) << "\n");
-      KLEE_DEBUG(dbgs() << symbolicValue << "\n");
+      KLEE_DEBUG(dbgs() << "  " << printValue(*producer) << "\n");
+      KLEE_DEBUG(dbgs() << "  " << symbolicValue << "\n");
     }
   }
 }
@@ -198,12 +198,12 @@ ref<Expr> VCHandler::resolvePointers(ExecutionState &state,
            "Concrete pointer not bound to MemoryObject");
     const auto *memory = op.first;
     ref<Expr> offset = memory->getOffsetExpr(address);
-    KLEE_DEBUG(dbgs() << "Concrete pointer resolves to " << memory->name
+    KLEE_DEBUG(dbgs() << "  Concrete pointer resolves to " << memory->name
                       << ", offset " << offset << "\n");
     // TODO: Produce human-readable expressions instead of hash codes
     auto hash = hash_combine(memory->name, offset->computeHash());
     ref<Expr> hashValue = klee::ConstantExpr::create(hash, Expr::Int64);
-    KLEE_DEBUG(dbgs() << "Replaced concrete pointer with hash " << hashValue
+    KLEE_DEBUG(dbgs() << "  Replaced concrete pointer with hash " << hashValue
                       << "\n");
     return hashValue;
   }
