@@ -496,8 +496,12 @@ SmallVector<std::unique_ptr<Module>, 2> loadModules(LLVMContext &ctx) {
 }
 
 bool checkValues(const StringRef currentKind, const VAs &currentVAs,
-                 const StringRef otherKind, VToRangeToA &otherVToRangeToA) {
-  size_t equal = 0, notEqual = 0, unused = 0;
+                 const bool currentCompleteExecution,
+                 const bool currentFunctionCovered, const StringRef otherKind,
+                 VToRangeToA &otherVToRangeToA,
+                 const bool otherCompleteExecution,
+                 const bool otherFunctionCovered) {
+  size_t equal = 0, notEqual = 0, unused = 0, unreachable = 0;
 
   Solver *coreSolver = createCoreSolver(CoreSolverToUse);
   // TODO: Remove these path args...
@@ -540,17 +544,37 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     const auto &currentSymValue = currentAssn->evaluate();
     const auto &otherSymValue = otherAssn->evaluate();
     if (!currentSymValue) {
-      outs() << "❌ " << currentKind << " " << variable << " ";
-      outs() << "assn " << *currentAssn << " has no symbolic value ";
-      outs() << "from " << currentAssn->producers << "\n";
+      if (currentCompleteExecution && !currentFunctionCovered) {
+        // If execution is complete but some coverage is missing, then relax
+        // missing value to unreachable
+        outs() << "🔔 " << currentKind << " " << variable << " "
+               << "assn " << *currentAssn << " has no symbolic value "
+               << "(likely unreachable) "
+               << "from " << currentAssn->producers << "\n";
+        ++unreachable;
+      } else {
+        outs() << "❌ " << currentKind << " " << variable << " "
+               << "assn " << *currentAssn << " has no symbolic value "
+               << "from " << currentAssn->producers << "\n";
+        ++notEqual;
+      }
+      continue;
     }
     if (!otherSymValue) {
-      outs() << "❌ " << otherKind << " " << variable << " ";
-      outs() << "assn " << *otherAssn << " has no symbolic value ";
-      outs() << "from " << otherAssn->producers << "\n";
-    }
-    if (!currentSymValue || !otherSymValue) {
-      ++notEqual;
+      if (otherCompleteExecution && !otherFunctionCovered) {
+        // If execution is complete but some coverage is missing, then relax
+        // missing value to unreachable
+        outs() << "🔔 " << otherKind << " " << variable << " "
+               << "assn " << *otherAssn << " has no symbolic value "
+               << "(likely unreachable) "
+               << "from " << otherAssn->producers << "\n";
+        ++unreachable;
+      } else {
+        outs() << "❌ " << otherKind << " " << variable << " "
+               << "assn " << *otherAssn << " has no symbolic value "
+               << "from " << otherAssn->producers << "\n";
+        ++notEqual;
+      }
       continue;
     }
 
@@ -652,9 +676,10 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
   outs() << (match ? "✅ " : "❌ ");
   outs() << currentKind << " symbolic values checked against "
          << otherKind.lower() << "\n";
-  outs() << "  Matching:   " << equal << "\n";
-  outs() << "  Mismatched: " << notEqual << "\n";
-  outs() << "  Unused:     " << unused << "\n";
+  outs() << "  Matching:    " << equal << "\n";
+  outs() << "  Mismatched:  " << notEqual << "\n";
+  outs() << "  Unused:      " << unused << "\n";
+  outs() << "  Unreachable: " << unreachable << "\n";
 
   return match;
 }
@@ -765,8 +790,8 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
       const auto &afterRangeLookup = afterVToRangeToA.find(variable);
 
       if (beforeRangeLookup == beforeVToRangeToA.end()) {
-        outs() << "🔔 Before live ranges for " << variable << " not found, "
-               << "variable likely undefined\n";
+        outs() << "🔔 Before live ranges for " << variable << " not found "
+               << "(variable likely undefined)\n";
         ++undefined;
         continue;
       }
@@ -824,6 +849,13 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
                       beforeDefinition.getName(), outputDir, beforeFlatVAs);
     KLEE_DEBUG(dbgs() << "\n");
   }
+  bool beforeCompleteExecution = beforeInterpreter->hasCompleteExecution();
+  bool beforeFunctionCovered =
+      beforeInterpreter->isFunctionCovered(beforeDefinition);
+  if (!beforeCompleteExecution) {
+    outs() << "❌ Unable to execute all before program states\n";
+    summary = false;
+  }
 
   // Collect symbolic values for after module
   std::unique_ptr<Interpreter> afterInterpreter;
@@ -835,17 +867,28 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
                       afterDefinition.getName(), outputDir, afterFlatVAs);
     KLEE_DEBUG(dbgs() << "\n");
   }
+  bool afterCompleteExecution = afterInterpreter->hasCompleteExecution();
+  bool afterFunctionCovered =
+      afterInterpreter->isFunctionCovered(afterDefinition);
+  if (!afterCompleteExecution) {
+    outs() << "❌ Unable to execute all after program states\n";
+    summary = false;
+  }
 
   // Check before assignments against after assignments on the same source line
   outs() << "#### Check before against after\n\n";
-  summary &= checkValues("Before", beforeFlatVAs, "After", afterVToRangeToA);
+  summary &= checkValues("Before", beforeFlatVAs, beforeCompleteExecution,
+                         beforeFunctionCovered, "After", afterVToRangeToA,
+                         afterCompleteExecution, afterFunctionCovered);
 
   outs() << "\n";
 
   // TODO: Deduplicate pairings already checked by the previous direction
   // Check after assignments against before assignments on the same source line
   outs() << "#### Check after against before\n\n";
-  summary &= checkValues("After", afterFlatVAs, "Before", beforeVToRangeToA);
+  summary &= checkValues("After", afterFlatVAs, afterCompleteExecution,
+                         afterFunctionCovered, "Before", beforeVToRangeToA,
+                         beforeCompleteExecution, beforeFunctionCovered);
 
   outs() << "\n"; // ### Symbolic values
 

@@ -190,6 +190,10 @@ public:
                                 unsigned index) = 0;
 
   virtual Cell &getDestCell(ExecutionState &state, KInstruction *target) = 0;
+
+  virtual bool isFunctionCovered(const llvm::Function &function) const = 0;
+
+  virtual bool hasCompleteExecution() const = 0;
 };
 
 } // End klee namespace

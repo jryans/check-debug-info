@@ -376,6 +376,17 @@ bool StatsTracker::isInstructionCovered(KInstruction *instruction) const {
   return theStatisticManager->getIndexedValue(stats::coveredInstructions, id);
 }
 
+bool StatsTracker::isFunctionCovered(const llvm::Function &function) const {
+  for (const BasicBlock &block : function) {
+    for (const Instruction &instruction : block) {
+      const auto id = executor.kmodule->infos->getInfo(instruction).id;
+      if (!theStatisticManager->getIndexedValue(stats::coveredInstructions, id))
+        return false;
+    }
+  }
+  return true;
+}
+
 ///
 
 /* Should be called _after_ the es->pushFrame() */

@@ -179,6 +179,9 @@ private:
   /// step.
   bool haltExecution;  
 
+  /// Whether execution of all states continued to a normal exit
+  bool completeExecution;
+
   /// Whether implied-value concretization is enabled. Currently
   /// false, it is buggy (it needs to validate its writes).
   bool ivcEnabled;
@@ -594,6 +597,12 @@ public:
 
   Cell &getDestCell(ExecutionState &state, KInstruction *target) override {
     return state.stack.back().locals[target->dest];
+  }
+
+  bool isFunctionCovered(const llvm::Function &function) const override;
+
+  bool hasCompleteExecution() const override {
+    return completeExecution;
   }
 };
   

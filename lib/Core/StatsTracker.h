@@ -97,6 +97,7 @@ namespace klee {
                            ExecutionState *visitedFalse);
 
     bool isInstructionCovered(KInstruction *instruction) const;
+    bool isFunctionCovered(const llvm::Function &function) const;
 
     // called when execution is done and stats files should be flushed
     void done();

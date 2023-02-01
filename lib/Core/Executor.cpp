@@ -455,10 +455,11 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
                    InterpreterHandler *ih)
     : Interpreter(opts), interpreterHandler(ih), searcher(0),
       externalDispatcher(new ExternalDispatcher(ctx)), statsTracker(0),
-      pathWriter(0), symPathWriter(0), specialFunctionHandler(0), timers{time::Span(TimerInterval)},
-      replayKTest(0), replayPath(0), usingSeeds(0),
-      atMemoryLimit(false), inhibitForking(false), haltExecution(false),
-      ivcEnabled(false), debugLogBuffer(debugBufferString) {
+      pathWriter(0), symPathWriter(0), specialFunctionHandler(0),
+      timers{time::Span(TimerInterval)}, replayKTest(0), replayPath(0),
+      usingSeeds(0), atMemoryLimit(false), inhibitForking(false),
+      haltExecution(false), completeExecution(true), ivcEnabled(false),
+      debugLogBuffer(debugBufferString) {
   // force deterministic initialization of memory objects
   srand(1);
   srandom(1);
@@ -915,6 +916,7 @@ void Executor::branch(ExecutionState &state,
   assert(N);
 
   if (!branchingPermitted(state)) {
+    completeExecution = false;
     unsigned next = theRNG.getInt32() % N;
     for (unsigned i=0; i<N; ++i) {
       if (i == next) {
@@ -1096,6 +1098,7 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
       assert(!replayKTest && "in replay mode, only one branch can be true.");
       
       if (!branchingPermitted(current)) {
+        completeExecution = false;
         TimerStatIncrementer timer(stats::forkTime);
         if (theRNG.getBool()) {
           if (DebugExecutionTrace)
@@ -3974,6 +3977,9 @@ void Executor::terminateStateEarly(ExecutionState &state, const Twine &message,
         terminationTypeFileExtension(terminationType).c_str());
   }
 
+  if (terminationType != StateTerminationType::BranchTargetsCovered)
+    completeExecution = false;
+
   terminateState(state);
 }
 
@@ -4075,6 +4081,8 @@ void Executor::terminateStateOnError(ExecutionState &state,
     interpreterHandler->processTestCase(state, msg.str().c_str(), file_suffix);
   }
 
+  completeExecution = false;
+
   terminateState(state);
 
   if (shouldExitOn(terminationType))
@@ -4090,6 +4098,10 @@ void Executor::terminateStateOnExecError(ExecutionState &state,
 void Executor::terminateStateOnSolverError(ExecutionState &state,
                                            const llvm::Twine &message) {
   terminateStateOnError(state, message, StateTerminationType::Solver, "");
+}
+
+bool Executor::isFunctionCovered(const llvm::Function &function) const {
+  return statsTracker->isFunctionCovered(function);
 }
 
 // XXX shoot me
