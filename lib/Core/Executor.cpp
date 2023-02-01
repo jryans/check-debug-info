@@ -2078,6 +2078,9 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
       for (unsigned k = 0, numArgs = f->arg_size(); k < numArgs; ++k) {
         const Argument *arg = f->getArg(k);
         llvm::Type* argType = arg->getType();
+        // Argument attributes like `readonly` may not be present in unoptimised
+        // programs (may need e.g. `PostOrderFunctionAttrsPass` during
+        // optimisation)
         if (!argType->isPointerTy() || arg->onlyReadsMemory()) continue;
 
         if (DebugExecutionTrace)
@@ -2094,8 +2097,16 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
               "Concrete pointer not bound to MemoryObject");
         const MemoryObject *memory = op.first;
         const ObjectState *pointerState = op.second;
-        ref<Expr> offset = memory->getOffsetExpr(address);
 
+        // Ignore read only values
+        if (pointerState->readOnly) {
+          if (DebugExecutionTrace)
+            *execTraceText << "`" << arg->getName()
+                           << "`'s value is read only, ignoring\n";
+          continue;
+        }
+
+        ref<Expr> offset = memory->getOffsetExpr(address);
         auto *pointeeType = cast<PointerType>(argType)->getElementType();
         const unsigned pointeeTypeSizeBits =
           kmodule->targetData->getTypeSizeInBits(pointeeType);
