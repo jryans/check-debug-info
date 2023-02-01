@@ -2047,11 +2047,9 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
     // name check here
     if (interpreterOpts.IndependentFunctions &&
         // Allow KLEE check functions (for now)
-        !f->getName().startswith("klee_") &&
+        !isCheck(f) &&
         // Allow KLEE freestanding runtime functions
-        !llvm::any_of(preservedFunctions, [&](const auto *name) {
-          return f->getName().equals(name);
-        })) {
+        !isRuntime(f)) {
       if (DebugExecutionTrace)
         *execTraceText << "Function independent mode active, skipping call to `"
                        << f->getName() << "`…\n";
@@ -2290,6 +2288,16 @@ KInstIterator Executor::getBasicBlockEntry(llvm::BasicBlock *block,
   return &kf->instructions[entry];
 }
 
+bool Executor::isCheck(const llvm::Function *f) const {
+  return f->getName().startswith("klee_");
+}
+
+bool Executor::isRuntime(const llvm::Function *f) const {
+  return llvm::any_of(preservedFunctions, [&](const auto *name) {
+    return f->getName().equals(name);
+  });
+}
+
 /// Compute the true target of a function call, resolving LLVM aliases
 /// and bitcasts.
 Function* Executor::getTargetFunction(Value *calledVal, ExecutionState &state) {
@@ -2425,8 +2433,9 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
       transferToBasicBlock(bi->getSuccessor(0), bi->getParent(), state);
     } else {
       // TODO: Try to set up a believable state for each path first...?
-      if (OnlyUncoveredBranchTargets && statsTracker &&
-          state.stack.back().kf->trackCoverage) {
+      // TODO: Allow KLEE check and runtime functions to run normally...?
+      const auto *kf = state.stack.back().kf;
+      if (OnlyUncoveredBranchTargets && statsTracker && kf->trackCoverage) {
         auto *firstBlock = bi->getSuccessor(0);
         auto *secondBlock = bi->getSuccessor(1);
         const auto &firstEntry = getBasicBlockEntry(firstBlock, state);

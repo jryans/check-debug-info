@@ -253,6 +253,9 @@ private:
   KInstIterator getBasicBlockEntry(llvm::BasicBlock *block,
                                    ExecutionState &state) const;
 
+  bool isCheck(const llvm::Function *f) const;
+  bool isRuntime(const llvm::Function *f) const;
+
   void callExternalFunction(ExecutionState &state,
                             KInstruction *target,
                             KCallable *callable,
