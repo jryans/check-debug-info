@@ -2050,9 +2050,7 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
     // name check here
     if (interpreterOpts.IndependentFunctions &&
         // Allow KLEE check functions (for now)
-        !isCheck(f) &&
-        // Allow KLEE freestanding runtime functions
-        !isRuntime(f)) {
+        !isCheck(f)) {
       if (DebugExecutionTrace)
         *execTraceText << "Function independent mode active, skipping call to `"
                        << f->getName() << "`…\n";
