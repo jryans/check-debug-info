@@ -109,6 +109,7 @@ struct Assignment {
   // Caches the evaluated symbolic value computed by `evaluate`
   klee::ref<klee::Expr> evaluatedSymbolicValue;
   // Whether assignment appears to be removable by optimisation
+  // TODO: Track different removability reasons separately...?
   bool removable = false;
 
   bool operator==(const Assignment &other) const {

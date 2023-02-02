@@ -951,7 +951,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   bool beforeFunctionCovered =
       beforeInterpreter->isFunctionCovered(beforeDefinition);
   if (!beforeCompleteExecution) {
-    outs() << "❌ Unable to execute all before program states\n";
+    outs() << "❌ Unable to execute all before program states\n\n";
     summary = false;
   }
 
@@ -969,7 +969,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   bool afterFunctionCovered =
       afterInterpreter->isFunctionCovered(afterDefinition);
   if (!afterCompleteExecution) {
-    outs() << "❌ Unable to execute all after program states\n";
+    outs() << "❌ Unable to execute all after program states\n\n";
     summary = false;
   }
 
