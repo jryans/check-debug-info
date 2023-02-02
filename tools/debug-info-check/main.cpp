@@ -153,7 +153,8 @@ bool checkStaticRemovability(const Assignment &assignment) {
   return false;
 }
 
-bool addAssignment(const InstructionInfoTable &instrInfo,
+bool addAssignment(const StringRef moduleKind,
+                   const InstructionInfoTable &instrInfo,
                    const DbgVariableIntrinsic *varIntrinsic,
                    const Variable &variable, const StringRef userKind,
                    const llvm::Instruction *user, const Values &&producers,
@@ -328,7 +329,8 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
   assignment.producers = std::move(producers);
   assignment.user = user;
   assignment.asmLine = instrInfo.getInfo(*user).assemblyLine;
-  assignment.removable = checkStaticRemovability(assignment);
+  if (moduleKind == "Before")
+    assignment.removable = checkStaticRemovability(assignment);
 
   KLEE_DEBUG(dbgs() << "  Added assignment starting at src line "
                     << assignment.startLine << ", column "
@@ -406,9 +408,9 @@ bool gatherAssignments(const StringRef moduleKind,
         if (storeInstruction->getPointerOperand() != address)
           continue;
         const Values producers(1, storeInstruction->getValueOperand());
-        summary &=
-            addAssignment(instrInfo, declareIntrinsic, variable, "Store to",
-                          storeInstruction, std::move(producers), varToAs);
+        summary &= addAssignment(moduleKind, instrInfo, declareIntrinsic,
+                                 variable, "Store to", storeInstruction,
+                                 std::move(producers), varToAs);
       }
     }
   } else if (const auto *valueIntrinsic =
@@ -419,9 +421,9 @@ bool gatherAssignments(const StringRef moduleKind,
                       << instrInfo.getInfo(*valueIntrinsic).assemblyLine
                       << "\n");
     const Values producers(valueIntrinsic->getValues());
-    summary &=
-        addAssignment(instrInfo, valueIntrinsic, variable, "Value produced for",
-                      valueIntrinsic, std::move(producers), varToAs);
+    summary &= addAssignment(moduleKind, instrInfo, valueIntrinsic, variable,
+                             "Value produced for", valueIntrinsic,
+                             std::move(producers), varToAs);
   } else {
     llvm_unreachable("Unexpected dbg intrinsic");
   }
