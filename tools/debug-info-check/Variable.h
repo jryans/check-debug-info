@@ -92,7 +92,7 @@ struct Assignment {
   // TODO: Maybe remove this now that we have improved matching...?
   unsigned int id;
 
-  // Not checked during comparison
+  // Everything below is not checked during comparison
 
   // dbg.declare or dbg.value intrinsic
   const llvm::DbgVariableIntrinsic *varIntrinsic;
@@ -108,6 +108,8 @@ struct Assignment {
   Exprs producedSymbolicValues;
   // Caches the evaluated symbolic value computed by `evaluate`
   klee::ref<klee::Expr> evaluatedSymbolicValue;
+  // Whether assignment appears to be removable by optimisation
+  bool removable = false;
 
   bool operator==(const Assignment &other) const {
     // If either one is missing column info, ignore it for comparison purposes

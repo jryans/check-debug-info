@@ -97,6 +97,62 @@ extern cl::opt<bool> DebugExecutionTrace;
 extern cl::opt<bool> OnlyUncoveredBranchTargets;
 } // namespace klee
 
+bool checkStaticRemovability(const Assignment &assignment) {
+  assert(!assignment.removable && "Assignment already known to be removable");
+
+  // Check whether value is only used by debug info
+  // TODO: Examine indirect users as well
+  const auto *varIntrinsic = assignment.varIntrinsic;
+  if (const auto *declareIntrinsic = dyn_cast<DbgDeclareInst>(varIntrinsic)) {
+    // Look for loads from the `dbg.declare`'s address
+    // TODO: Do this once for all assignments under this `dbg.declare`
+    const Value *address = declareIntrinsic->getAddress();
+    if (!address) {
+      KLEE_DEBUG(dbgs() << "  @dbg.declare without an address, removable\n");
+      return true;
+    }
+    bool hasReadUsers = false;
+    for (const auto *addressUse : address->users()) {
+      if (const auto *storeInstruction = dyn_cast<StoreInst>(addressUse)) {
+        continue;
+      } else if (const auto *loadInstruction = dyn_cast<LoadInst>(addressUse)) {
+        // Ensure this is an address operand user
+        if (loadInstruction->getPointerOperand() != address)
+          continue;
+        hasReadUsers = true;
+        break;
+      } else {
+        llvm_unreachable("Unexpected @dbg.declare address user");
+      }
+    }
+    if (!hasReadUsers) {
+      KLEE_DEBUG(dbgs() << "  @dbg.declare without read users, removable\n");
+      return true;
+    }
+  } else if (const auto *valueIntrinsic =
+                 dyn_cast<DbgValueInst>(varIntrinsic)) {
+    bool hasNonDebugUsers = false;
+    for (const auto *value : valueIntrinsic->getValues()) {
+      for (const auto *user : value->users()) {
+        if (!isa<DbgInfoIntrinsic>(user)) {
+          hasNonDebugUsers = true;
+          break;
+        }
+      }
+      if (hasNonDebugUsers)
+        break;
+    }
+    if (!hasNonDebugUsers) {
+      KLEE_DEBUG(dbgs() << "  @dbg.value without non-debug users, removable\n");
+      return true;
+    }
+  } else {
+    llvm_unreachable("Unexpected dbg intrinsic");
+  }
+
+  return false;
+}
+
 bool addAssignment(const InstructionInfoTable &instrInfo,
                    const DbgVariableIntrinsic *varIntrinsic,
                    const Variable &variable, const StringRef userKind,
@@ -272,6 +328,7 @@ bool addAssignment(const InstructionInfoTable &instrInfo,
   assignment.producers = std::move(producers);
   assignment.user = user;
   assignment.asmLine = instrInfo.getInfo(*user).assemblyLine;
+  assignment.removable = checkStaticRemovability(assignment);
 
   KLEE_DEBUG(dbgs() << "  Added assignment starting at src line "
                     << assignment.startLine << ", column "
@@ -496,12 +553,12 @@ SmallVector<std::unique_ptr<Module>, 2> loadModules(LLVMContext &ctx) {
 }
 
 bool checkValues(const StringRef currentKind, const VAs &currentVAs,
-                 const bool currentCompleteExecution,
+                 const VToAs &currentVToAs, const bool currentCompleteExecution,
                  const bool currentFunctionCovered, const StringRef otherKind,
                  VToRangeToA &otherVToRangeToA,
                  const bool otherCompleteExecution,
                  const bool otherFunctionCovered) {
-  size_t equal = 0, notEqual = 0, unused = 0, unreachable = 0;
+  size_t equal = 0, notEqual = 0, unused = 0, unreachable = 0, removable = 0;
 
   Solver *coreSolver = createCoreSolver(CoreSolverToUse);
   // TODO: Remove these path args...
@@ -513,7 +570,22 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     const Variable &variable = current.first;
     const auto &otherRangeLookup = otherVToRangeToA.find(variable);
     if (otherRangeLookup == otherVToRangeToA.end()) {
-      if (variable.unused) {
+      // Check if all current assignments are removable
+      bool currentVariableRemovable = true;
+      const auto &currentAssnsLookup = currentVToAs.find(variable);
+      if (currentAssnsLookup != currentVToAs.end()) {
+        for (const auto &assn : currentAssnsLookup->second) {
+          if (!assn.removable) {
+            currentVariableRemovable = false;
+            break;
+          }
+        }
+      }
+      if (currentVariableRemovable) {
+        outs() << "🔔 " << otherKind << " live ranges for (removable) "
+               << variable << " not found\n";
+        ++removable;
+      } else if (variable.unused) {
         outs() << "🔔 " << otherKind << " live ranges for (unused) " << variable
                << " not found\n";
         ++unused;
@@ -529,10 +601,17 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     auto otherAssnLookup =
         otherRange.find({currentAssn->startLine, currentAssn->startColumn});
     if (otherAssnLookup == otherRange.end()) {
-      outs() << "❌ " << otherKind << " live range for " << variable
-             << " at src line " << currentAssn->startLine << ", column "
-             << currentAssn->startColumn << " not found\n";
-      ++notEqual;
+      if (currentAssn->removable) {
+        outs() << "🔔 " << otherKind << " (removable) live range for "
+               << variable << " at src line " << currentAssn->startLine
+               << ", column " << currentAssn->startColumn << " not found\n";
+        ++removable;
+      } else {
+        outs() << "❌ " << otherKind << " live range for " << variable
+               << " at src line " << currentAssn->startLine << ", column "
+               << currentAssn->startColumn << " not found\n";
+        ++notEqual;
+      }
       continue;
     }
     Assignment *otherAssn = *otherAssnLookup;
@@ -680,6 +759,7 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
   outs() << "  Mismatched:  " << notEqual << "\n";
   outs() << "  Unused:      " << unused << "\n";
   outs() << "  Unreachable: " << unreachable << "\n";
+  outs() << "  Removable:   " << removable << "\n";
 
   return match;
 }
@@ -783,7 +863,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   // Verify all before live ranges are covered by after ranges
   {
-    size_t covered = 0, uncovered = 0, undefined = 0, unused = 0;
+    size_t covered = 0, uncovered = 0, undefined = 0, unused = 0, removable = 0;
 
     for (const auto &variable : beforeVariables) {
       const auto &beforeRangeLookup = beforeVToRangeToA.find(variable);
@@ -796,7 +876,22 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
         continue;
       }
       if (afterRangeLookup == afterVToRangeToA.end()) {
-        if (variable.unused) {
+        // Check if all before assignments are removable
+        bool beforeVariableRemovable = true;
+        const auto &beforeAssnsLookup = beforeVToAs.find(variable);
+        if (beforeAssnsLookup != beforeVToAs.end()) {
+          for (const auto &assn : beforeAssnsLookup->second) {
+            if (!assn.removable) {
+              beforeVariableRemovable = false;
+              break;
+            }
+          }
+        }
+        if (beforeVariableRemovable) {
+          outs() << "🔔 After live ranges for (removable) " << variable
+                 << " not found\n";
+          ++removable;
+        } else if (variable.unused) {
           outs() << "🔔 After live ranges for (unused) " << variable
                  << " not found\n";
           ++unused;
@@ -833,6 +928,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
     outs() << "  Uncovered: " << uncovered << "\n";
     outs() << "  Undefined: " << undefined << "\n";
     outs() << "  Unused:    " << unused << "\n";
+    outs() << "  Removable: " << removable << "\n";
   }
 
   outs() << "\n"; // ### Assignments
@@ -877,18 +973,20 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   // Check before assignments against after assignments on the same source line
   outs() << "#### Check before against after\n\n";
-  summary &= checkValues("Before", beforeFlatVAs, beforeCompleteExecution,
-                         beforeFunctionCovered, "After", afterVToRangeToA,
-                         afterCompleteExecution, afterFunctionCovered);
+  summary &=
+      checkValues("Before", beforeFlatVAs, beforeVToAs, beforeCompleteExecution,
+                  beforeFunctionCovered, "After", afterVToRangeToA,
+                  afterCompleteExecution, afterFunctionCovered);
 
   outs() << "\n";
 
   // TODO: Deduplicate pairings already checked by the previous direction
   // Check after assignments against before assignments on the same source line
   outs() << "#### Check after against before\n\n";
-  summary &= checkValues("After", afterFlatVAs, afterCompleteExecution,
-                         afterFunctionCovered, "Before", beforeVToRangeToA,
-                         beforeCompleteExecution, beforeFunctionCovered);
+  summary &=
+      checkValues("After", afterFlatVAs, afterVToAs, afterCompleteExecution,
+                  afterFunctionCovered, "Before", beforeVToRangeToA,
+                  beforeCompleteExecution, beforeFunctionCovered);
 
   outs() << "\n"; // ### Symbolic values
 
