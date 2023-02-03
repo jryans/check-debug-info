@@ -507,8 +507,11 @@ void buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
           varToRangeToA
               .emplace(std::make_pair(variable, RangeToA(rangeMapAllocator)))
               .first->second;
-      assert(!varRange.overlaps(start, end) &&
-             "Multiple assignments for the same source location");
+      if (start == end || varRange.overlaps(start, end)) {
+        outs() << "🔔 Multiple assignments to variable " << variable
+               << " in source range from " << start << " to " << end << "\n";
+        continue;
+      }
       varRange.insert(start, end, &assignment);
     }
   }

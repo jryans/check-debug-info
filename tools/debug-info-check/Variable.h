@@ -179,6 +179,13 @@ struct Location {
   bool operator<=(const Location &other) const { return !(other < *this); }
 };
 
+inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
+                                     const Location &location) {
+  out << "line " << location.line;
+  out << ", column " << location.column;
+  return out;
+}
+
 using RangeToA = llvm::IntervalMap<Location, Assignment *, 8,
                                    llvm::IntervalMapHalfOpenInfo<Location>>;
 using VToRangeToA = std::map<Variable, RangeToA>;
