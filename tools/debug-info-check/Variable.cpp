@@ -81,8 +81,10 @@ ref<Expr> Assignment::evaluate() {
   if (evaluatedSymbolicValue)
     return evaluatedSymbolicValue;
 
-  const auto *variable = varIntrinsic->getVariable();
-  ExprBuilder *builder = createDefaultExprBuilder();
+  if (varIntrinsic->isUndef()) {
+    KLEE_DEBUG(dbgs() << "Variable intrinsic with undef input" << "\n");
+    return nullptr;
+  }
 
   if (producedSymbolicValues.size() != producers.size()) {
     KLEE_DEBUG(dbgs() << "Expected " << producers.size()
@@ -90,6 +92,9 @@ ref<Expr> Assignment::evaluate() {
                       << producedSymbolicValues.size() << "\n");
     return nullptr;
   }
+
+  const auto *variable = varIntrinsic->getVariable();
+  ExprBuilder *builder = createDefaultExprBuilder();
 
   // Empty expression
   const auto *expr = varIntrinsic->getExpression();
