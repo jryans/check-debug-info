@@ -139,6 +139,18 @@ ref<Expr> Assignment::evaluate() {
       KLEE_DEBUG(dbgs() << "constu/s: " << result << "\n");
       stack.push_back(std::move(result));
     } break;
+    // 0x1a / 026
+    // Pops the top two stack entries, performs a bitwise and operation on the
+    // two, and pushes the result.
+    case dwarf::DW_OP_and: {
+      auto arg1 = stack.back();
+      stack.pop_back();
+      auto &arg2 = stack.back();
+      autoTruncate(builder, arg1, arg2);
+      const auto result = builder->And(arg1, arg2);
+      KLEE_DEBUG(dbgs() << "and: " << result << "\n");
+      stack.back() = std::move(result);
+    } break;
     // 0x1b / 027
     // Pops the top two stack values, divides the former second entry by the
     // former top of the stack using signed division, and pushes the result.
@@ -163,6 +175,18 @@ ref<Expr> Assignment::evaluate() {
       KLEE_DEBUG(dbgs() << "minus: " << result << "\n");
       stack.back() = std::move(result);
     } break;
+    // 0x1d / 029
+    // Pops the top two stack values, calculates the former second entry modulo
+    // the former top of the stack, and pushes the result.
+    case dwarf::DW_OP_mod: {
+      auto arg1 = stack.back();
+      stack.pop_back();
+      auto &arg2 = stack.back();
+      autoTruncate(builder, arg1, arg2);
+      const auto result = builder->SRem(arg2, arg1);
+      KLEE_DEBUG(dbgs() << "mod: " << result << "\n");
+      stack.back() = std::move(result);
+    } break;
     // 0x1e / 030
     // Pops the top two stack entries, multiplies them together, and pushes the
     // result.
@@ -175,6 +199,18 @@ ref<Expr> Assignment::evaluate() {
       KLEE_DEBUG(dbgs() << "mul: " << result << "\n");
       stack.back() = std::move(result);
     } break;
+    // 0x21 / 033
+    // Pops the top two stack entries, performs a bitwise or operation on the
+    // two, and pushes the result.
+    case dwarf::DW_OP_or: {
+      auto arg1 = stack.back();
+      stack.pop_back();
+      auto &arg2 = stack.back();
+      autoTruncate(builder, arg1, arg2);
+      const auto result = builder->Or(arg1, arg2);
+      KLEE_DEBUG(dbgs() << "or: " << result << "\n");
+      stack.back() = std::move(result);
+    } break;
     // 0x22 / 034
     // Pops the top two stack entries, adds them together, and pushes the
     // result.
@@ -185,6 +221,58 @@ ref<Expr> Assignment::evaluate() {
       autoTruncate(builder, arg1, arg2);
       const auto result = builder->Add(arg1, arg2);
       KLEE_DEBUG(dbgs() << "plus: " << result << "\n");
+      stack.back() = std::move(result);
+    } break;
+    // 0x24 / 036
+    // Pops the top two stack entries, shifts the former second entry left
+    // (filling with zero bits) by the number of bits specified by the former
+    // top of the stack, and pushes the result.
+    case dwarf::DW_OP_shl: {
+      auto arg1 = stack.back();
+      stack.pop_back();
+      auto &arg2 = stack.back();
+      autoTruncate(builder, arg1, arg2);
+      const auto result = builder->Shl(arg2, arg1);
+      KLEE_DEBUG(dbgs() << "shl: " << result << "\n");
+      stack.back() = std::move(result);
+    } break;
+    // 0x25 / 037
+    // Pops the top two stack entries, shifts the former second entry right
+    // logically (filling with zero bits) by the number of bits specified by the
+    // former top of the stack, and pushes the result.
+    case dwarf::DW_OP_shr: {
+      auto arg1 = stack.back();
+      stack.pop_back();
+      auto &arg2 = stack.back();
+      autoTruncate(builder, arg1, arg2);
+      const auto result = builder->LShr(arg2, arg1);
+      KLEE_DEBUG(dbgs() << "shr: " << result << "\n");
+      stack.back() = std::move(result);
+    } break;
+    // 0x26 / 038
+    // Pops the top two stack entries, shifts the former second entry right
+    // arithmetically (divide the magnitude by 2, keep the same sign for the
+    // result) by the number of bits specified by the former top of the stack,
+    // and pushes the result.
+    case dwarf::DW_OP_shra: {
+      auto arg1 = stack.back();
+      stack.pop_back();
+      auto &arg2 = stack.back();
+      autoTruncate(builder, arg1, arg2);
+      const auto result = builder->AShr(arg2, arg1);
+      KLEE_DEBUG(dbgs() << "shra: " << result << "\n");
+      stack.back() = std::move(result);
+    } break;
+    // 0x27 / 039
+    // Pops the top two stack entries, performs a bitwise exclusive-or operation
+    // on the two, and pushes the result.
+    case dwarf::DW_OP_xor: {
+      auto arg1 = stack.back();
+      stack.pop_back();
+      auto &arg2 = stack.back();
+      autoTruncate(builder, arg1, arg2);
+      const auto result = builder->Xor(arg1, arg2);
+      KLEE_DEBUG(dbgs() << "xor: " << result << "\n");
       stack.back() = std::move(result);
     } break;
     // 0x9f / 159
