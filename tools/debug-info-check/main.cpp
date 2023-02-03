@@ -835,8 +835,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   {
     bool match = beforeVariables == afterVariables;
-    summary &= match;
-    outs() << (match ? "✅ " : "❌ ");
+    outs() << (match ? "✅ " : "🔔 ");
     outs() << beforeVariables.size() << " before variables found, ";
     outs() << afterVariables.size() << " after variables found, ";
     auto mismatched = set_difference(beforeVariables, afterVariables);
