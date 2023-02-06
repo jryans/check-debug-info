@@ -77,7 +77,7 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
                                      const Variable &variable) {
   out << "`" << variable.name << "` ";
-  out << "(decl src line " << variable.declLine << ")";
+  out << "(decl src ln " << variable.declLine << ")";
   return out;
 }
 
@@ -144,8 +144,8 @@ struct Assignment {
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
                                      const Assignment &assignment) {
   out << assignment.id << ", ";
-  out << "src line " << assignment.startLine;
-  out << ", column " << assignment.startColumn;
+  out << "src ln " << assignment.startLine;
+  out << ", col " << assignment.startColumn;
   return out;
 }
 
@@ -181,8 +181,8 @@ struct Location {
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
                                      const Location &location) {
-  out << "line " << location.line;
-  out << ", column " << location.column;
+  out << "ln " << location.line;
+  out << ", col " << location.column;
   return out;
 }
 

@@ -161,7 +161,7 @@ bool addAssignment(const StringRef moduleKind,
                    VToAs &varToAs) {
   if (producers.empty()) {
     outs() << "❌ Variable intrinsic without inputs, ";
-    outs() << "asm line " << instrInfo.getInfo(*varIntrinsic).assemblyLine
+    outs() << "asm ln " << instrInfo.getInfo(*varIntrinsic).assemblyLine
            << "\n";
     outs() << "  " << printInstruction(*varIntrinsic) << "\n";
     return false;
@@ -169,7 +169,7 @@ bool addAssignment(const StringRef moduleKind,
   for (const auto *producer : producers) {
     if (!producer) {
       outs() << "❌ Variable intrinsic with empty input, ";
-      outs() << "asm line " << instrInfo.getInfo(*varIntrinsic).assemblyLine
+      outs() << "asm ln " << instrInfo.getInfo(*varIntrinsic).assemblyLine
              << "\n";
       outs() << "  " << printInstruction(*varIntrinsic) << "\n";
       return false;
@@ -179,7 +179,7 @@ bool addAssignment(const StringRef moduleKind,
            "Unexpected producer type");
   }
 
-  KLEE_DEBUG(dbgs() << userKind << " " << variable << ", asm line "
+  KLEE_DEBUG(dbgs() << userKind << " " << variable << ", asm ln "
                     << instrInfo.getInfo(*user).assemblyLine << "\n");
 
   KLEE_DEBUG(dbgs() << "  ");
@@ -188,7 +188,7 @@ bool addAssignment(const StringRef moduleKind,
   for (const auto *producer : producers) {
     if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
       KLEE_DEBUG(
-          dbgs() << printInstruction(*producerInstruction) << ", asm line "
+          dbgs() << printInstruction(*producerInstruction) << ", asm ln "
                  << instrInfo.getInfo(*producerInstruction).assemblyLine);
     } else if (const auto *producerArgument = dyn_cast<Argument>(producer)) {
       KLEE_DEBUG(dbgs() << "arg " << producerArgument->getArgNo());
@@ -332,8 +332,8 @@ bool addAssignment(const StringRef moduleKind,
   if (moduleKind == "Before")
     assignment.removable = checkStaticRemovability(assignment);
 
-  KLEE_DEBUG(dbgs() << "  Added assignment starting at src line "
-                    << assignment.startLine << ", column "
+  KLEE_DEBUG(dbgs() << "  Added assignment starting at src ln "
+                    << assignment.startLine << ", col "
                     << assignment.startColumn << "\n");
   assignments.push_back(std::move(assignment));
   return true;
@@ -388,7 +388,7 @@ bool gatherAssignments(const StringRef moduleKind,
   if (varIntrinsic->isUndef() && varToAs[variable].empty()) {
     KLEE_DEBUG(dbgs() << moduleKind
                       << " variable intrinsic with undef input, ");
-    KLEE_DEBUG(dbgs() << "asm line "
+    KLEE_DEBUG(dbgs() << "asm ln "
                       << instrInfo.getInfo(*varIntrinsic).assemblyLine
                       << ", ignoring undefined variable\n");
     KLEE_DEBUG(dbgs() << "  " << printInstruction(*varIntrinsic) << "\n");
@@ -417,7 +417,7 @@ bool gatherAssignments(const StringRef moduleKind,
                  dyn_cast<DbgValueInst>(&instruction)) {
     // Find related instructions via the `dbg.value`'s location ops
     KLEE_DEBUG(dbgs() << "@dbg.value mapping for " << variable << ", ");
-    KLEE_DEBUG(dbgs() << "asm line "
+    KLEE_DEBUG(dbgs() << "asm ln "
                       << instrInfo.getInfo(*valueIntrinsic).assemblyLine
                       << "\n");
     const Values producers(valueIntrinsic->getValues());
@@ -608,12 +608,12 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     if (otherAssnLookup == otherRange.end()) {
       if (currentAssn->removable) {
         outs() << "🔔 " << otherKind << " (removable) live range for "
-               << variable << " at src line " << currentAssn->startLine
-               << ", column " << currentAssn->startColumn << " not found\n";
+               << variable << " at src ln " << currentAssn->startLine
+               << ", col " << currentAssn->startColumn << " not found\n";
         ++removable;
       } else {
         outs() << "❌ " << otherKind << " live range for " << variable
-               << " at src line " << currentAssn->startLine << ", column "
+               << " at src ln " << currentAssn->startLine << ", col "
                << currentAssn->startColumn << " not found\n";
         ++notEqual;
       }
