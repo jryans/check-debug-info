@@ -622,8 +622,9 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     Assignment *otherAssn = *otherAssnLookup;
     // This does _not_ check symbolic values
     if (*otherAssn != *currentAssn) {
-      outs() << "🔔 " << otherKind << " assn " << *otherAssn << " doesn't match "
-             << currentKind.lower() << " assn " << *currentAssn << "\n";
+      outs() << "🔔 " << otherKind << " " << variable << " assn " << *otherAssn
+             << " coordinates don't match " << currentKind.lower() << " assn "
+             << *currentAssn << "\n";
     }
     const auto &currentSymValue = currentAssn->evaluate();
     const auto &otherSymValue = otherAssn->evaluate();
@@ -739,7 +740,9 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
       klee_error("Solver unable to process query");
 
     if (!result) {
-      outs() << "❌ Symbolic values don't match:\n";
+      outs() << "❌ " << otherKind << " " << variable << " assn " << *otherAssn
+             << " symbolic value doesn't match " << currentKind.lower()
+             << " assn " << *currentAssn << "\n";
       outs() << queryCommand->Query << "\n";
     }
 
