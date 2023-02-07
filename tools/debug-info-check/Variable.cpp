@@ -49,6 +49,8 @@ void autoTruncate(ExprBuilder *builder, ref<Expr> &arg1, ref<Expr> &arg2) {
   const auto width2 = arg2->getWidth();
   if (width1 == width2)
     return;
+  if (isa<klee::ConstantExpr>(arg1) || isa<klee::ConstantExpr>(arg2))
+    return;
   if (width1 < width2) {
     arg2 = builder->Extract(arg2, 0, width1);
     return;
