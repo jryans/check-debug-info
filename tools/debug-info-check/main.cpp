@@ -689,7 +689,14 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
             dyn_cast<klee::ConstantExpr>(currentSymValue)) {
       if (const auto *otherConstant =
               dyn_cast<klee::ConstantExpr>(otherSymValue)) {
-        if (currentConstant->getAPValue() == otherConstant->getAPValue())
+        bool result =
+            currentConstant->getAPValue() == otherConstant->getAPValue();
+        if (!result) {
+          outs() << "❌ " << otherKind << " " << variable << " assn "
+                 << *otherAssn << " symbolic value doesn't match "
+                 << currentKind.lower() << " assn " << *currentAssn << "\n";
+        }
+        if (result)
           ++equal;
         else
           ++notEqual;
