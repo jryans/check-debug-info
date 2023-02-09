@@ -92,7 +92,7 @@ cl::opt<std::string> relaxViaDiagnostics(
 } // namespace
 
 namespace klee {
-extern cl::opt<unsigned> MaxForks;
+extern cl::opt<int> MaxForks;
 extern cl::opt<bool> DebugExecutionTrace;
 extern cl::opt<bool> OnlyUncoveredBranchTargets;
 } // namespace klee

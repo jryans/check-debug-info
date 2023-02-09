@@ -308,10 +308,10 @@ cl::opt<unsigned long long> MaxInstructions(
     cl::init(0),
     cl::cat(TerminationCat));
 
-cl::opt<unsigned>
+cl::opt<int>
     MaxForks("max-forks",
              cl::desc("Only fork this many times.  Set to -1 to disable (default=-1)"),
-             cl::init(~0u),
+             cl::init(-1),
              cl::cat(TerminationCat));
 
 cl::opt<unsigned> MaxDepth(
@@ -890,7 +890,7 @@ bool Executor::branchingPermitted(const ExecutionState &state) const {
   if ((MaxMemoryInhibit && atMemoryLimit) ||
       state.forkDisabled ||
       inhibitForking ||
-      (MaxForks!=~0u && stats::forks >= MaxForks)) {
+      (MaxForks >= 0 && stats::forks >= (unsigned)MaxForks)) {
 
     if (MaxMemoryInhibit && atMemoryLimit)
       klee_warning_once(0, "skipping fork (memory cap exceeded)");
