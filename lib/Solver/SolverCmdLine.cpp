@@ -183,7 +183,7 @@ MetaSMTBackend("metasmt-backend",
 #endif
 
 cl::opt<CoreSolverType> CoreSolverToUse(
-    "solver-backend", cl::desc("Specifiy the core solver backend to use"),
+    "solver-backend", cl::desc("Specify the core solver backend to use"),
     cl::values(clEnumValN(STP_SOLVER, "stp", "STP" STP_IS_DEFAULT_STR),
                clEnumValN(METASMT_SOLVER, "metasmt",
                           "metaSMT" METASMT_IS_DEFAULT_STR),
@@ -194,7 +194,7 @@ cl::opt<CoreSolverType> CoreSolverToUse(
 cl::opt<CoreSolverType> DebugCrossCheckCoreSolverWith(
     "debug-crosscheck-core-solver",
     cl::desc(
-        "Specifiy a solver to use for crosschecking the results of the core solver"),
+        "Specify a solver to use for crosschecking the results of the core solver"),
     cl::values(clEnumValN(STP_SOLVER, "stp", "STP"),
                clEnumValN(METASMT_SOLVER, "metasmt", "metaSMT"),
                clEnumValN(DUMMY_SOLVER, "dummy", "Dummy solver"),
