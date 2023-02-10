@@ -44,6 +44,9 @@ llvm::cl::opt<bool> IgnoreSolverFailures(
 
 #define vc_bvBoolExtract IAMTHESPAWNOFSATAN
 
+// We never detach... macOS seems to have trouble resetting the counter of
+// outstanding shared memory segments, so we just reuse one for the life of the
+// program.
 static unsigned char *shared_memory_ptr = nullptr;
 static int shared_memory_id = 0;
 // Darwin by default has a very small limit on the maximum amount of shared
@@ -107,8 +110,7 @@ STPSolverImpl::STPSolverImpl(bool useForkedSTP, bool optimizeDivides)
 
   vc_registerErrorHandler(::stp_error_handler);
 
-  if (useForkedSTP) {
-    assert(shared_memory_id == 0 && "shared memory id already allocated");
+  if (useForkedSTP && !shared_memory_id) {
     shared_memory_id =
         shmget(IPC_PRIVATE, shared_memory_size, IPC_CREAT | 0700);
     if (shared_memory_id < 0)
@@ -121,11 +123,6 @@ STPSolverImpl::STPSolverImpl(bool useForkedSTP, bool optimizeDivides)
 }
 
 STPSolverImpl::~STPSolverImpl() {
-  // Detach the memory region.
-  shmdt(shared_memory_ptr);
-  shared_memory_ptr = nullptr;
-  shared_memory_id = 0;
-
   delete builder;
 
   vc_Destroy(vc);
