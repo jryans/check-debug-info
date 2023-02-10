@@ -246,6 +246,7 @@ bool addAssignment(const StringRef moduleKind,
       // Find last assignment, potentially traversing multiple predecessors
       const Assignment *lastAssignment = nullptr;
       SmallSet<const BasicBlock *, 4> blocksSeen;
+      bool tooManyPreds = false;
       while (block) {
         if (blocksSeen.count(block))
           break;
@@ -261,9 +262,16 @@ bool addAssignment(const StringRef moduleKind,
         }
         // Try the next predecessor
         // TODO: Support multiple predecessors after the first block
-        assert(!block->hasNPredecessorsOrMore(2) &&
-               "Basic block with multiple predecessors");
+        if (block->hasNPredecessorsOrMore(2)) {
+          tooManyPreds = true;
+          break;
+        }
         block = block->getSinglePredecessor();
+      }
+      if (tooManyPreds) {
+        KLEE_DEBUG(dbgs() << "  Phi node with multiple predecessors\n");
+        match = false;
+        break;
       }
       if (!lastAssignment) {
         KLEE_DEBUG(dbgs() << "  No previous assignments found for phi edge\n");
