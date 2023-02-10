@@ -49,6 +49,7 @@ void autoTruncate(ExprBuilder *builder, ref<Expr> &arg1, ref<Expr> &arg2) {
   const auto width2 = arg2->getWidth();
   if (width1 == width2)
     return;
+  // JRS: This escape breaks `truncateToVariable` which uses a constant...
   if (isa<klee::ConstantExpr>(arg1) || isa<klee::ConstantExpr>(arg2))
     return;
   if (width1 < width2) {
@@ -141,8 +142,9 @@ ref<Expr> Assignment::evaluate() {
     // Provides a signed integer constant.
     case dwarf::DW_OP_consts: {
       const auto &arg = exprOp.getArg(0);
-      // Machine word size used as a generic width for constants
-      const auto result = builder->Constant(arg, Expr::Int64);
+      // Assume constants have the width of the source variable
+      const auto result =
+          builder->Constant(arg, variable->getSizeInBits().getValue());
       KLEE_DEBUG(dbgs() << "constu/s: " << result << "\n");
       stack.push_back(std::move(result));
     } break;
