@@ -160,7 +160,7 @@ bool addAssignment(const StringRef moduleKind,
                    const llvm::Instruction *user, const Values &&producers,
                    VToAs &varToAs) {
   if (producers.empty()) {
-    outs() << "❌ Variable intrinsic without inputs, ";
+    outs() << "❌ Assignment without inputs, ";
     outs() << "asm ln " << instrInfo.getInfo(*varIntrinsic).assemblyLine
            << "\n";
     outs() << "  " << printInstruction(*varIntrinsic) << "\n";
@@ -168,7 +168,7 @@ bool addAssignment(const StringRef moduleKind,
   }
   for (const auto *producer : producers) {
     if (!producer) {
-      outs() << "❌ Variable intrinsic with empty input, ";
+      outs() << "❌ Assignment with empty input, ";
       outs() << "asm ln " << instrInfo.getInfo(*varIntrinsic).assemblyLine
              << "\n";
       outs() << "  " << printInstruction(*varIntrinsic) << "\n";
