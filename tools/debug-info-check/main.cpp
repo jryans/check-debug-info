@@ -679,13 +679,13 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
 
     KLEE_DEBUG(dbgs() << "Checking equivalence of " << variable << " "
                       << "from\n"
-                      << "assn " << *currentAssn << "\n"
-                      << currentAssn->producers << "\n"
-                      << currentSymValue << "\n"
+                      << "  assn " << *currentAssn << "\n"
+                      << "  " << currentAssn->producers << "\n"
+                      << "  " << currentSymValue << "\n"
                       << "and\n"
-                      << "assn " << *otherAssn << "\n"
-                      << otherAssn->producers << "\n"
-                      << otherSymValue << "\n");
+                      << "  assn " << *otherAssn << "\n"
+                      << "  " << otherAssn->producers << "\n"
+                      << "  " << otherSymValue << "\n");
 
     assert(currentSymValue->getWidth() == otherSymValue->getWidth() &&
            "Bit widths don't match");
@@ -708,6 +708,7 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
           ++equal;
         else
           ++notEqual;
+        KLEE_DEBUG(dbgs() << "\n");
         continue;
       }
     }
@@ -771,6 +772,8 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
       ++equal;
     else
       ++notEqual;
+
+    KLEE_DEBUG(dbgs() << "\n");
 
     delete command;
     for (const auto *decl : decls) {
