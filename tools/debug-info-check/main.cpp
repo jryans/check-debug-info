@@ -157,7 +157,7 @@ bool addAssignment(const StringRef moduleKind,
                    const InstructionInfoTable &instrInfo,
                    const DbgVariableIntrinsic *varIntrinsic,
                    const Variable &variable, const StringRef userKind,
-                   const llvm::Instruction *user, const Values &&producers,
+                   const Instruction *user, const Values &&producers,
                    VToAs &varToAs) {
   if (producers.empty()) {
     outs() << "❌ Assignment without inputs, ";
