@@ -175,6 +175,10 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &event,
       assignment->producedSymbolicValues.push_back(symbolicValue);
       event.assignment = true;
       KLEE_DEBUG(dbgs() << "  " << printValue(*producer) << "\n");
+      if (isa<PHINode>(producer)) {
+        assignment->incomingBlockIndex = state.incomingBBIndex;
+        KLEE_DEBUG(dbgs() << "  Block: " << state.incomingBBIndex << "\n");
+      }
       KLEE_DEBUG(dbgs() << "  " << symbolicValue << "\n");
     }
   }

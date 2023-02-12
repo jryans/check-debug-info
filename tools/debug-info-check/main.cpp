@@ -32,6 +32,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DebugLoc.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/InstIterator.h"
@@ -96,6 +97,15 @@ extern cl::opt<int> MaxForks;
 extern cl::opt<bool> DebugExecutionTrace;
 extern cl::opt<bool> OnlyUncoveredBranchTargets;
 } // namespace klee
+
+bool isInstructionInBlockPrologue(const Instruction *query) {
+  for (const Instruction *inst = query->getPrevNode(); inst;
+       inst = inst->getPrevNode()) {
+    if (!isa<DbgInfoIntrinsic>(inst) && !isa<PHINode>(inst))
+      return false;
+  }
+  return true;
+}
 
 bool checkStaticRemovability(const Assignment &assignment) {
   assert(!assignment.removable && "Assignment already known to be removable");
@@ -211,91 +221,27 @@ bool addAssignment(const StringRef moduleKind,
   // Keeping redundant assignments adds no new info and can cause `IntervalMap`
   // to assert by trying to store an empty interval.
   if (assignments.size()) {
+    const bool hasPhis = any_of(
+        producers, [](const Value *value) { return isa<PHINode>(value); });
+    if (hasPhis) {
+      // Check whether the user instruction is just after phis at block start
+      // If so, then it is a continuation of a previously defined value and can
+      // be skipped here
+      assert(isa<DbgValueInst>(user) && "Non-dbg.value user with phis");
+      if (isInstructionInBlockPrologue(user)) {
+        KLEE_DEBUG(dbgs() << "  Phi-based assignment in prologue, skipping\n");
+        return true;
+      }
+    }
+    // Phis are undecided until execution, so we can't filter them here by value
     const auto &lastAssignment = assignments.back();
-    if (lastAssignment.producers == producers) {
-      KLEE_DEBUG(dbgs() << "  Value is same as last assignment, skipping\n");
+    if (!hasPhis && lastAssignment.producers == producers) {
+      KLEE_DEBUG(dbgs() << "  Producers match last assignment, skipping\n");
       return true;
     }
   }
 
-  // TODO: Rethink this phi handling...
-  // For phi nodes, check if they redundantly match the previous assignments for
-  // all incoming edges. This may involve traversing multiple predecessor
-  // blocks.
-  if (producers.size() == 1 && isa<PHINode>(producers[0])) {
-    const auto *phiNode = cast<PHINode>(producers[0]);
-    bool match = true;
-    for (const auto &phiEdge : phiNode->incoming_values()) {
-      const Value &value = *phiEdge;
-
-      const BasicBlock *block = phiNode->getIncomingBlock(phiEdge);
-      KLEE_DEBUG(dbgs() << "  Checking phi edge [ ";
-                 if (value.hasName()) dbgs() << "%" << value.getName();
-                 else dbgs() << value; dbgs() << ", ";
-                 if (block->hasName()) dbgs() << "%" << block->getName();
-                 else dbgs() << block; dbgs() << " ]\n");
-      assert(block && "Phi edge without a basic block");
-
-      // Ignore edges that reference the same block
-      // TODO: Is this actually okay to do...?
-      if (phiNode->getParent() == block) {
-        KLEE_DEBUG(dbgs() << "  Ignoring cyclical phi edge\n");
-        continue;
-      }
-
-      // Find last assignment, potentially traversing multiple predecessors
-      const Assignment *lastAssignment = nullptr;
-      SmallSet<const BasicBlock *, 4> blocksSeen;
-      bool tooManyPreds = false;
-      while (block) {
-        if (blocksSeen.count(block))
-          break;
-        blocksSeen.insert(block);
-        const auto assignmentsInBlock =
-            make_filter_range(assignments, [&](const Assignment &assn) {
-              return assn.varIntrinsic->getParent() == block;
-            });
-        // Check whether there's at least one previous assignment
-        if (assignmentsInBlock.end() != assignmentsInBlock.begin()) {
-          lastAssignment = &*std::prev(assignmentsInBlock.end());
-          break;
-        }
-        // Try the next predecessor
-        // TODO: Support multiple predecessors after the first block
-        if (block->hasNPredecessorsOrMore(2)) {
-          tooManyPreds = true;
-          break;
-        }
-        block = block->getSinglePredecessor();
-      }
-      if (tooManyPreds) {
-        KLEE_DEBUG(dbgs() << "  Phi node with multiple predecessors\n");
-        match = false;
-        break;
-      }
-      if (!lastAssignment) {
-        KLEE_DEBUG(dbgs() << "  No previous assignments found for phi edge\n");
-        match = false;
-        break;
-      }
-      KLEE_DEBUG(dbgs() << "  Last assignment for phi edge: " << *lastAssignment
-                        << "\n");
-
-      if (!lastAssignment->isValueConsistent(variable, &value)) {
-        KLEE_DEBUG(dbgs() << "  Phi edge value mismatch\n"
-                          << "    " << lastAssignment->producers << "\n"
-                          << "    " << value << "\n");
-        match = false;
-        break;
-      }
-    }
-    if (match) {
-      KLEE_DEBUG(dbgs() << "  All phi values same as last assignments, "
-                        << "skipping\n");
-      return true;
-    }
-  }
-
+  bool summary = true;
   Assignment assignment = {};
 
   if (const auto debugLoc = user->getDebugLoc()) {
@@ -321,14 +267,15 @@ bool addAssignment(const StringRef moduleKind,
     }
   }
   if (!assignment.startLine && assignments.empty()) {
-    // If there are no other assignments so far, then assume this one starts at
-    // declaration.
+    // If there are no other assignments so far, then silently assume this one
+    // starts at declaration (this often happens with initialiser values).
     assignment.startLine = variable.declLine;
   }
   if (!assignment.startLine) {
     outs() << "❌ " << userKind << " " << variable;
-    outs() << ": missing line info\n";
-    return false;
+    outs() << ": missing line info, using decl ln\n";
+    assignment.startLine = variable.declLine;
+    summary = false;
   }
   assert(assignment.startLine >= variable.declLine &&
          "Assignment starts before declaration");
@@ -344,7 +291,7 @@ bool addAssignment(const StringRef moduleKind,
                     << assignment.startLine << ", col "
                     << assignment.startColumn << "\n");
   assignments.push_back(std::move(assignment));
-  return true;
+  return summary;
 }
 
 void applyVariableDiagnostics(const StringRef moduleKind,
@@ -471,16 +418,32 @@ bool gatherAssignments(const StringRef moduleKind, const Function &function,
   return summary;
 }
 
-// TODO: Maybe remove this now that we're matching via queries...?
-void generateAssignmentIDs(VariablesSet &variables, VToAs &varToAs) {
+void computeAssignmentGeneration(Function &function, VariablesSet &variables,
+                                 VToAs &varToAs) {
+  DominatorTree domTree(function);
   for (const auto &variable : variables) {
     auto &assignments = varToAs[variable];
-    sort(assignments, [](const Assignment &left, const Assignment &right) {
-      return std::tie(left.startLine, left.startColumn, left.asmLine) <
-             std::tie(right.startLine, right.startColumn, right.asmLine);
+    if (assignments.empty())
+      continue;
+    sort(assignments, [&](const Assignment &left, const Assignment &right) {
+      // Dominance is checked **after** source coordinates
+      const int leftDom = domTree.dominates(left.user, right.user) ? -1 : 1;
+      const int rightDom = 0;
+      // If either one is missing column info, ignore it for comparison purposes
+      if (!left.startColumn || !right.startColumn) {
+        return std::tie(left.startLine, leftDom) <
+               std::tie(right.startLine, rightDom);
+      }
+      return std::tie(left.startLine, left.startColumn, leftDom) <
+             std::tie(right.startLine, right.startColumn, rightDom);
     });
+    KLEE_DEBUG(dbgs() << "Computing generations: " << variable << "\n");
+    // Generation is currently incremented for each assignment after sorting
+    // Consider only incrementing when source coordinates match
     for (size_t i = 0, e = assignments.size(); i < e; ++i) {
-      assignments[i].id = i;
+      assignments[i].generation = i;
+      KLEE_DEBUG(dbgs() << "  asm line " << assignments[i].asmLine << ", "
+                        << assignments[i] << "\n");
     }
   }
 }
@@ -490,10 +453,6 @@ void buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
                                    RangeToA::Allocator &rangeMapAllocator) {
   for (const auto &variable : variables) {
     auto &assignments = varToAs[variable];
-    sort(assignments, [](const Assignment &left, const Assignment &right) {
-      return std::tie(left.startLine, left.startColumn, left.asmLine) <
-             std::tie(right.startLine, right.startColumn, right.asmLine);
-    });
     for (size_t i = 0, e = assignments.size(); i < e; ++i) {
       auto &assignment = assignments[i];
 
@@ -505,17 +464,20 @@ void buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
 
       unsigned int startLine = assignment.startLine;
       unsigned int startColumn = assignment.startColumn;
-      unsigned int endLine, endColumn;
+      unsigned int startGeneration = assignment.generation;
+      unsigned int endLine, endColumn, endGeneration;
       if ((i + 1) < e) {
         endLine = assignments[i + 1].startLine;
         endColumn = assignments[i + 1].startColumn;
+        endGeneration = assignments[i + 1].generation;
       } else {
         endLine = UINT_MAX;
         endColumn = UINT_MAX;
+        endGeneration = UINT_MAX;
       }
 
-      Location start = {startLine, startColumn};
-      Location end = {endLine, endColumn};
+      Location start = {startLine, startColumn, startGeneration};
+      Location end = {endLine, endColumn, endGeneration};
 
       auto &varRange =
           varToRangeToA
@@ -618,17 +580,16 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     Assignment *currentAssn = current.second;
     auto &otherRange = otherVToRangeToA.at(variable);
     auto otherAssnLookup =
-        otherRange.find({currentAssn->startLine, currentAssn->startColumn});
+        otherRange.find({currentAssn->startLine, currentAssn->startColumn,
+                         currentAssn->generation});
     if (otherAssnLookup == otherRange.end()) {
       if (currentAssn->removable) {
         outs() << "🔔 " << otherKind << " (removable) live range for "
-               << variable << " at src ln " << currentAssn->startLine
-               << ", col " << currentAssn->startColumn << " not found\n";
+               << variable << " at " << *currentAssn << " not found\n";
         ++removable;
       } else {
-        outs() << "❌ " << otherKind << " live range for " << variable
-               << " at src ln " << currentAssn->startLine << ", col "
-               << currentAssn->startColumn << " not found\n";
+        outs() << "❌ " << otherKind << " live range for " << variable << " at "
+               << *currentAssn << " not found\n";
         ++notEqual;
       }
       continue;
@@ -823,8 +784,8 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   }
   outs() << "✅ Before and after function names match\n";
 
-  const auto &beforeDefinition = *beforeDefinitionPtr;
-  const auto &afterDefinition = *afterDefinitionPtr;
+  auto &beforeDefinition = *beforeDefinitionPtr;
+  auto &afterDefinition = *afterDefinitionPtr;
 
   outs() << "\n"; // ## Function
 
@@ -846,7 +807,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   summary &= gatherAssignments("Before", beforeDefinition, beforeInstrInfo,
                                diagnostics, beforeVariables, beforeVToAs);
-  generateAssignmentIDs(beforeVariables, beforeVToAs);
+  computeAssignmentGeneration(beforeDefinition, beforeVariables, beforeVToAs);
   buildLiveRangeToAssignmentMap(beforeVariables, beforeVToAs, beforeVToRangeToA,
                                 rangeMapAllocator);
   if (!beforeVariables.empty())
@@ -854,7 +815,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   summary &= gatherAssignments("After", afterDefinition, afterInstrInfo,
                                diagnostics, afterVariables, afterVToAs);
-  generateAssignmentIDs(afterVariables, afterVToAs);
+  computeAssignmentGeneration(afterDefinition, afterVariables, afterVToAs);
   buildLiveRangeToAssignmentMap(afterVariables, afterVToAs, afterVToRangeToA,
                                 rangeMapAllocator);
   if (!afterVariables.empty())
@@ -936,14 +897,15 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
       const auto &beforeRange = beforeRangeLookup->second;
       const auto &afterRange = afterRangeLookup->second;
 
-      Location MAX = {UINT_MAX, UINT_MAX};
-      assert(beforeRange.stop() == MAX && "Before live range terminates early");
-      assert(afterRange.stop() == MAX && "After live range terminates early");
+      assert(beforeRange.stop().line == UINT_MAX &&
+             "Before live range terminates early");
+      assert(afterRange.stop().line == UINT_MAX &&
+             "After live range terminates early");
+      // TODO: Does this still make sense with generations...?
       if (beforeRange.start() != afterRange.start()) {
-        outs() << "❌ Live ranges for " << variable << " don't match: ["
-               << beforeRange.start().line << "." << beforeRange.start().column
-               << ",∞) vs. [" << afterRange.start().line << "."
-               << afterRange.start().column << ",∞)\n";
+        outs() << "❌ Live ranges for " << variable
+               << " don't match: " << beforeRange.start() << " vs. "
+               << afterRange.start() << "\n";
         ++uncovered;
         continue;
       }
