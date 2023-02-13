@@ -58,6 +58,7 @@
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
@@ -68,6 +69,7 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -1826,6 +1828,120 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
   Instruction *i = ki->inst;
   if (isa_and_nonnull<DbgInfoIntrinsic>(i))
     return;
+
+  // For functions with a local definition (or those we've manufactured), skip
+  // actually calling when independent function mode is used.
+  // TODO: Should this be another interpreter handler as well...?
+  // TODO: Work out how to assume KLEE checks pass, then remove the function
+  // name check here
+  if ((!f->isDeclaration() || manufacturedFunctions.count(f)) &&
+      interpreterOpts.IndependentFunctions &&
+      // Allow KLEE check functions (for now)
+      !isCheck(f)) {
+    assert(!f->getName().empty() && "Function without name");
+
+    if (DebugExecutionTrace)
+      *execTraceText << "Function independent mode active, skipping call to `"
+                     << f->getName() << "`…\n";
+
+    // If there's a return value, make it symbolic
+    Type *returnType = f->getReturnType();
+    if (!returnType->isVoidTy()) {
+      // Build a symbolic return value
+      const ObjectState *argState =
+          buildSymbolicValue(state, f, returnType, f->getName() + ".return");
+      // Bind return value as result of load from new symbolic memory
+      const unsigned returnTypeSizeBits =
+          kmodule->targetData->getTypeSizeInBits(returnType);
+      bindLocal(ki, state, argState->read(0, returnTypeSizeBits));
+    }
+
+    // TODO: Support variable number of arguments
+    assert(!f->isVarArg() &&
+           "Function to skip has variable number of arguments");
+
+    // If there are non-const pointer arguments, reset their storage to
+    // symbolic (since the callee may have written something)
+    for (unsigned k = 0, numArgs = f->arg_size(); k < numArgs; ++k) {
+      const Argument *arg = f->getArg(k);
+      llvm::Type *argType = arg->getType();
+
+      // Argument attributes like `readonly` may not be present in unoptimised
+      // programs (may need e.g. `PostOrderFunctionAttrsPass` during
+      // optimisation)
+      if (!argType->isPointerTy() || arg->onlyReadsMemory())
+        continue;
+
+      llvm::SmallString<6> argName = arg->getName();
+      if (argName.empty()) {
+        argName = "arg";
+        argName += std::to_string(arg->getArgNo());
+      }
+
+      // Ignore function pointers
+      if (const auto *ptrType = dyn_cast<PointerType>(argType)) {
+        const auto *pointeeType = ptrType->getElementType();
+        if (pointeeType->isFunctionTy()) {
+          if (DebugExecutionTrace)
+            *execTraceText << "Ignoring arg " << argName
+                           << ", has function pointer type\n";
+          continue;
+        }
+      }
+
+      if (DebugExecutionTrace)
+        *execTraceText << "Resetting storage for non-const pointer argument `"
+                       << argName << "` to symbolic…\n";
+
+      // Find the associated `MemoryObject` for concrete pointers
+      auto *address = dyn_cast<klee::ConstantExpr>(arguments[k]);
+      assert(address && "Pointer argument has symbolic address");
+      // Preserve null pointer values
+      if (address->isZero())
+        continue;
+      ObjectPair op;
+      assert(state.addressSpace.resolveOne(address, op) &&
+             "Concrete pointer not bound to MemoryObject");
+      const MemoryObject *memory = op.first;
+      const ObjectState *pointerState = op.second;
+
+      // Ignore read only values
+      if (pointerState->readOnly) {
+        if (DebugExecutionTrace)
+          *execTraceText << "`" << argName
+                         << "`'s value is read only, ignoring\n";
+        continue;
+      }
+
+      ref<Expr> offset = memory->getOffsetExpr(address);
+      auto *pointeeType = cast<PointerType>(argType)->getElementType();
+      const unsigned pointeeTypeSizeBits =
+          kmodule->targetData->getTypeSizeInBits(pointeeType);
+      if (DebugExecutionTrace)
+        *execTraceText << "Pointee value before reset to symbolic: "
+                       << pointerState->read(offset, pointeeTypeSizeBits)
+                       << "\n";
+
+      // Create a new (fully symbolic) value for the pointee
+      const ObjectState *pointeeState =
+          buildSymbolicValue(state, arg, pointeeType, argName + ".deref");
+
+      // Write new value to existing pointer's state
+      // It will be retrieved by any future accesses to the pointer's address
+      state.addressSpace.getWriteable(memory, pointerState)
+          ->write(offset, pointeeState->read(0, pointeeTypeSizeBits));
+      if (DebugExecutionTrace)
+        *execTraceText << "Pointee value after reset to symbolic: "
+                       << pointerState->read(offset, pointeeTypeSizeBits)
+                       << "\n";
+    }
+
+    // TODO: Check for global variable uses...?
+
+    // Stay in the independent function (do not follow the call)
+    return;
+  }
+
   if (f && f->isDeclaration()) {
     switch (f->getIntrinsicID()) {
     case Intrinsic::not_intrinsic: {
@@ -2045,94 +2161,6 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
       transferToBasicBlock(ii->getNormalDest(), i->getParent(), state);
     }
   } else {
-    // TODO: Should this be another interpreter handler as well...?
-    // TODO: Work out how to assume KLEE checks pass, then remove the function
-    // name check here
-    if (interpreterOpts.IndependentFunctions &&
-        // Allow KLEE check functions (for now)
-        !isCheck(f)) {
-      if (DebugExecutionTrace)
-        *execTraceText << "Function independent mode active, skipping call to `"
-                       << f->getName() << "`…\n";
-
-      // If there's a return value, make it symbolic
-      Type *returnType = f->getReturnType();
-      if (!returnType->isVoidTy()) {
-        // Build a symbolic return value
-        const ObjectState *argState =
-            buildSymbolicValue(state, f, returnType, f->getName());
-        // Bind return value as result of load from new symbolic memory
-        const unsigned returnTypeSizeBits =
-            kmodule->targetData->getTypeSizeInBits(returnType);
-        bindLocal(ki, state, argState->read(0, returnTypeSizeBits));
-      }
-
-      // TODO: Support variable number of arguments
-      assert(!f->isVarArg() &&
-             "Function to skip has variable number of arguments");
-
-      // If there are non-const pointer arguments, reset their storage to
-      // symbolic (since the callee may have written something)
-      for (unsigned k = 0, numArgs = f->arg_size(); k < numArgs; ++k) {
-        const Argument *arg = f->getArg(k);
-        llvm::Type* argType = arg->getType();
-        // Argument attributes like `readonly` may not be present in unoptimised
-        // programs (may need e.g. `PostOrderFunctionAttrsPass` during
-        // optimisation)
-        if (!argType->isPointerTy() || arg->onlyReadsMemory()) continue;
-
-        if (DebugExecutionTrace)
-          *execTraceText << "Resetting storage for non-const pointer argument `"
-                         << arg->getName() << "` to symbolic…\n";
-
-        // Find the associated `MemoryObject` for concrete pointers
-        auto *address = dyn_cast<klee::ConstantExpr>(arguments[k]);
-        assert(address && "Pointer argument has symbolic address");
-        // Preserve null pointer values
-        if (address->isZero()) continue;
-        ObjectPair op;
-        assert(state.addressSpace.resolveOne(address, op) &&
-              "Concrete pointer not bound to MemoryObject");
-        const MemoryObject *memory = op.first;
-        const ObjectState *pointerState = op.second;
-
-        // Ignore read only values
-        if (pointerState->readOnly) {
-          if (DebugExecutionTrace)
-            *execTraceText << "`" << arg->getName()
-                           << "`'s value is read only, ignoring\n";
-          continue;
-        }
-
-        ref<Expr> offset = memory->getOffsetExpr(address);
-        auto *pointeeType = cast<PointerType>(argType)->getElementType();
-        const unsigned pointeeTypeSizeBits =
-          kmodule->targetData->getTypeSizeInBits(pointeeType);
-        if (DebugExecutionTrace)
-          *execTraceText << "Pointee value before reset to symbolic: "
-                         << pointerState->read(offset, pointeeTypeSizeBits)
-                         << "\n";
-
-        // Create a new (fully symbolic) value for the pointee
-        const ObjectState *pointeeState = buildSymbolicValue(
-            state, arg, pointeeType, arg->getName() + ".deref");
-
-        // Write new value to existing pointer's state
-        // It will be retrieved by any future accesses to the pointer's address
-        state.addressSpace.getWriteable(memory, pointerState)
-            ->write(offset, pointeeState->read(0, pointeeTypeSizeBits));
-        if (DebugExecutionTrace)
-          *execTraceText << "Pointee value after reset to symbolic: "
-                         << pointerState->read(offset, pointeeTypeSizeBits)
-                         << "\n";
-      }
-
-      // TODO: Check for global variable uses...?
-
-      // Stay in the independent function (do not follow the call)
-      return;
-    }
-
     // Check if maximum stack size was reached.
     // We currently only count the number of stack frames
     if (RuntimeMaxStackFrames && state.stack.size() > RuntimeMaxStackFrames) {
@@ -4709,8 +4737,7 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
                                           const llvm::Value *allocSite,
                                           llvm::Type *valueType,
                                           const llvm::Twine &valueName) {
-  assert(!valueType->isVoidTy() && !valueType->isFunctionTy() &&
-         !valueType->isVectorTy() &&
+  assert(!valueType->isVoidTy() && !valueType->isVectorTy() &&
          "Unexpected type when building symbolic value");
   if (const auto *arrayType = dyn_cast<ArrayType>(valueType)) {
     auto *containedType = arrayType->getElementType();
@@ -4719,8 +4746,14 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
   }
 
   // Allocate memory to hold symbolic value
-  const unsigned storeSizeBytes =
-      kmodule->targetData->getTypeStoreSize(valueType);
+  unsigned storeSizeBytes;
+  if (valueType->isFunctionTy()) {
+    // Functions are unsized in LLVM terms, but we still want to allocate an
+    // object to use in function pointers
+    storeSizeBytes = 8;
+  } else {
+    storeSizeBytes = kmodule->targetData->getTypeStoreSize(valueType);
+  }
   const MemoryObject *valueMemory =
       memory->allocate(storeSizeBytes,
                        /*isLocal=*/true, /*isGlobal=*/false,
@@ -4785,9 +4818,22 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     state.addSymbolic(valueMemory, array);
   }
 
+  if (auto *funcType = dyn_cast<FunctionType>(valueType)) {
+    auto *func =
+        Function::Create(funcType, GlobalValue::ExternalLinkage, valueName);
+    legalFunctions.emplace(valueMemory->address, func);
+    manufacturedFunctions.emplace(func);
+    *execTraceText << "Added function " << valueName
+                   << " to set of manufactured functions\n";
+  }
+
   if (DebugExecutionTrace) {
-    const unsigned typeSizeBits =
-        kmodule->targetData->getTypeSizeInBits(valueType);
+    unsigned typeSizeBits;
+    if (valueType->isFunctionTy()) {
+      typeSizeBits = 64;
+    } else {
+      typeSizeBits = kmodule->targetData->getTypeSizeInBits(valueType);
+    }
     *execTraceText << "Built symbolic value for " << valueName << ": "
                    << valueState->read(0, typeSizeBits) << "\n";
   }

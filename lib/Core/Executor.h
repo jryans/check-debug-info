@@ -153,6 +153,10 @@ private:
   /// Used to validate and dereference function pointers.
   std::unordered_map<std::uint64_t, llvm::Function*> legalFunctions;
 
+  /// Set of functions manufactured during execution that appeared as function
+  /// pointer parameters in independent function mode.
+  std::set<llvm::Function*> manufacturedFunctions;
+
   /// When non-null the bindings that will be used for calls to
   /// klee_make_symbolic in order replay.
   const struct KTest *replayKTest;
