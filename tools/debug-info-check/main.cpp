@@ -688,9 +688,7 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     std::vector<const Array *> symbolicArrays;
     findSymbolicObjects(currentSymValue, symbolicArrays);
     // TODO: Perhaps merge current and other arrays properly
-    if (symbolicArrays.empty()) {
-      findSymbolicObjects(otherSymValue, symbolicArrays);
-    }
+    findSymbolicObjects(otherSymValue, symbolicArrays);
     for (const auto *array : symbolicArrays) {
       queryStream << "array " << array->getName();
       queryStream << "[" << array->getSize() << "]";
