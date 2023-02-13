@@ -277,8 +277,11 @@ bool addAssignment(const StringRef moduleKind,
     assignment.startLine = variable.declLine;
     summary = false;
   }
-  assert(assignment.startLine >= variable.declLine &&
-         "Assignment starts before declaration");
+  if (assignment.startLine < variable.declLine) {
+    outs() << "❌ " << userKind << " " << variable;
+    outs() << ": assignment " << assignment << " starts before decl\n";
+    summary = false;
+  }
 
   assignment.varIntrinsic = varIntrinsic;
   assignment.producers = std::move(producers);
