@@ -87,6 +87,7 @@ struct Assignment {
   // TODO: Pointer to the associated `Variable`...?
 
   unsigned int startLine;
+  // Column info is generally too unreliable for matching across versions
   unsigned int startColumn;
   // Generation used to distinguish assignments with the same source coordinates
   // (e.g. initialisation and advancement on the same line)
@@ -118,25 +119,15 @@ struct Assignment {
   bool removable = false;
 
   bool operator==(const Assignment &other) const {
-    // If either one is missing column info, ignore it for comparison purposes
-    if (!startColumn || !other.startColumn) {
-      return std::tie(startLine, generation) ==
-             std::tie(other.startLine, other.generation);
-    }
-    return std::tie(startLine, startColumn, generation) ==
-           std::tie(other.startLine, other.startColumn, other.generation);
+    return std::tie(startLine, generation) ==
+           std::tie(other.startLine, other.generation);
   }
 
   bool operator!=(const Assignment &other) const { return !(*this == other); }
 
   bool operator<(const Assignment &other) const {
-    // If either one is missing column info, ignore it for comparison purposes
-    if (!startColumn || !other.startColumn) {
-      return std::tie(startLine, generation) <
-             std::tie(other.startLine, other.generation);
-    }
-    return std::tie(startLine, startColumn, generation) <
-           std::tie(other.startLine, other.startColumn, other.generation);
+    return std::tie(startLine, generation) <
+           std::tie(other.startLine, other.generation);
   }
 
   bool operator<=(const Assignment &other) const { return !(other < *this); }
@@ -163,32 +154,19 @@ using VToAs = std::map<Variable, Assignments>;
 
 struct Location {
   unsigned int line;
-  unsigned int column;
   // Generation used to distinguish assignments with the same source coordinates
   // (e.g. initialisation and advancement on the same line)
   // Computed via the dominator tree (earlier generations dominate)
   unsigned int generation;
 
   bool operator==(const Location &other) const {
-    // If either one is missing column info, ignore it for comparison purposes
-    if (!column || !other.column) {
-      return std::tie(line, generation) ==
-             std::tie(other.line, other.generation);
-    }
-    return std::tie(line, column, generation) ==
-           std::tie(other.line, other.column, other.generation);
+    return std::tie(line, generation) == std::tie(other.line, other.generation);
   }
 
   bool operator!=(const Location &other) const { return !(*this == other); }
 
   bool operator<(const Location &other) const {
-    // If either one is missing column info, ignore it for comparison purposes
-    if (!column || !other.column) {
-      return std::tie(line, generation) <
-             std::tie(other.line, other.generation);
-    }
-    return std::tie(line, column, generation) <
-           std::tie(other.line, other.column, other.generation);
+    return std::tie(line, generation) < std::tie(other.line, other.generation);
   }
 
   bool operator<=(const Location &other) const { return !(other < *this); }
@@ -197,7 +175,6 @@ struct Location {
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
                                      const Location &location) {
   out << "src ln " << location.line;
-  out << ", col " << location.column;
   out << ", gen " << location.generation;
   return out;
 }

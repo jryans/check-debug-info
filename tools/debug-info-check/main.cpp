@@ -433,13 +433,8 @@ void computeAssignmentGeneration(Function &function, VariablesSet &variables,
       // Dominance is checked **after** source coordinates
       const int leftDom = domTree.dominates(left.user, right.user) ? -1 : 1;
       const int rightDom = 0;
-      // If either one is missing column info, ignore it for comparison purposes
-      if (!left.startColumn || !right.startColumn) {
-        return std::tie(left.startLine, leftDom) <
-               std::tie(right.startLine, rightDom);
-      }
-      return std::tie(left.startLine, left.startColumn, leftDom) <
-             std::tie(right.startLine, right.startColumn, rightDom);
+      return std::tie(left.startLine, leftDom) <
+             std::tie(right.startLine, rightDom);
     });
     KLEE_DEBUG(dbgs() << "Computing generations: " << variable << "\n");
     // Generation is currently incremented for each assignment after sorting
@@ -467,21 +462,18 @@ void buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
         continue;
 
       unsigned int startLine = assignment.startLine;
-      unsigned int startColumn = assignment.startColumn;
       unsigned int startGeneration = assignment.generation;
-      unsigned int endLine, endColumn, endGeneration;
+      unsigned int endLine, endGeneration;
       if ((i + 1) < e) {
         endLine = assignments[i + 1].startLine;
-        endColumn = assignments[i + 1].startColumn;
         endGeneration = assignments[i + 1].generation;
       } else {
         endLine = UINT_MAX;
-        endColumn = UINT_MAX;
         endGeneration = UINT_MAX;
       }
 
-      Location start = {startLine, startColumn, startGeneration};
-      Location end = {endLine, endColumn, endGeneration};
+      Location start = {startLine, startGeneration};
+      Location end = {endLine, endGeneration};
 
       auto &varRange =
           varToRangeToA
@@ -584,8 +576,7 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     Assignment *currentAssn = current.second;
     auto &otherRange = otherVToRangeToA.at(variable);
     auto otherAssnLookup =
-        otherRange.find({currentAssn->startLine, currentAssn->startColumn,
-                         currentAssn->generation});
+        otherRange.find({currentAssn->startLine, currentAssn->generation});
     if (otherAssnLookup == otherRange.end()) {
       if (currentAssn->removable) {
         outs() << "🔔 " << otherKind << " (removable) live range for "
