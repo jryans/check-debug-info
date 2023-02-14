@@ -101,7 +101,8 @@ extern cl::opt<bool> OnlyUncoveredBranchTargets;
 bool isInstructionInBlockPrologue(const Instruction *query) {
   for (const Instruction *inst = query->getPrevNode(); inst;
        inst = inst->getPrevNode()) {
-    if (!isa<DbgInfoIntrinsic>(inst) && !isa<PHINode>(inst))
+    if (!isa<DbgInfoIntrinsic>(inst) && !isa<PHINode>(inst) &&
+        !isa<BitCastInst>(inst))
       return false;
   }
   return true;
