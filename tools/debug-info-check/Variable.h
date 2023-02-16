@@ -86,9 +86,15 @@ using Exprs = llvm::SmallVector<klee::ref<klee::Expr>, 2>;
 struct Assignment {
   // TODO: Pointer to the associated `Variable`...?
 
-  unsigned int startLine;
+  // Source line by which all producers are available and assignment occurs
+  // Although this seemed good enough for matching initially, there are too many
+  // cases where this is unknown (constants) or inaccurate (reused values).
+  unsigned int producedLine;
   // Column info is generally too unreliable for matching across versions
-  unsigned int startColumn;
+  unsigned int producedColumn;
+  // Source line where the assignment is known to already be live
+  // Typically this comes from the instruction after assignment
+  unsigned int liveLine;
   // Generation used to distinguish assignments with the same source coordinates
   // (e.g. initialisation and advancement on the same line)
   // Computed via the dominator tree (earlier generations dominate)
@@ -119,15 +125,15 @@ struct Assignment {
   bool removable = false;
 
   bool operator==(const Assignment &other) const {
-    return std::tie(startLine, generation) ==
-           std::tie(other.startLine, other.generation);
+    return std::tie(liveLine, generation) ==
+           std::tie(other.liveLine, other.generation);
   }
 
   bool operator!=(const Assignment &other) const { return !(*this == other); }
 
   bool operator<(const Assignment &other) const {
-    return std::tie(startLine, generation) <
-           std::tie(other.startLine, other.generation);
+    return std::tie(liveLine, generation) <
+           std::tie(other.liveLine, other.generation);
   }
 
   bool operator<=(const Assignment &other) const { return !(other < *this); }
@@ -141,8 +147,8 @@ struct Assignment {
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
                                      const Assignment &assignment) {
-  out << "src ln " << assignment.startLine;
-  out << ", col " << assignment.startColumn;
+  out << "asm ln " << assignment.asmLine;
+  out << ", live ln " << assignment.liveLine;
   out << ", gen " << assignment.generation;
   return out;
 }
@@ -174,7 +180,7 @@ struct Location {
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
                                      const Location &location) {
-  out << "src ln " << location.line;
+  out << "live ln " << location.line;
   out << ", gen " << location.generation;
   return out;
 }

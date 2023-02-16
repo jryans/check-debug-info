@@ -245,9 +245,11 @@ bool addAssignment(const StringRef moduleKind,
   bool summary = true;
   Assignment assignment = {};
 
+  // Produced coordinates
+
   if (const auto debugLoc = user->getDebugLoc()) {
-    assignment.startLine = debugLoc.getLine();
-    assignment.startColumn = debugLoc.getCol();
+    assignment.producedLine = debugLoc.getLine();
+    assignment.producedColumn = debugLoc.getCol();
   }
   // When there are multiple producers, consider the start line of the
   // assignment to the be the max of source line numbers from all producers
@@ -256,33 +258,55 @@ bool addAssignment(const StringRef moduleKind,
     if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
       const auto debugLoc = producerInstruction->getDebugLoc();
       if (debugLoc) {
-        assignment.startLine =
-            std::max(assignment.startLine, debugLoc.getLine());
-        assignment.startColumn =
-            std::max(assignment.startColumn, debugLoc.getCol());
+        assignment.producedLine =
+            std::max(assignment.producedLine, debugLoc.getLine());
+        assignment.producedColumn =
+            std::max(assignment.producedColumn, debugLoc.getCol());
       }
     } else if (const auto *producerArgument = dyn_cast<Argument>(producer)) {
       // Arguments may be spread over multiple lines, so use the declaration to
       // get the most precise line info.
-      assignment.startLine = std::max(assignment.startLine, variable.declLine);
+      assignment.producedLine =
+          std::max(assignment.producedLine, variable.declLine);
     }
   }
-  if (!assignment.startLine && assignments.empty()) {
+  if (!assignment.producedLine && assignments.empty()) {
     // If there are no other assignments so far, then silently assume this one
     // starts at declaration (this often happens with initialiser values).
-    assignment.startLine = variable.declLine;
+    assignment.producedLine = variable.declLine;
   }
-  if (!assignment.startLine) {
+  if (!assignment.producedLine) {
+    outs() << "🔔 " << userKind << " " << variable;
+    outs() << ": missing produced line, using decl ln\n";
+    assignment.producedLine = variable.declLine;
+  }
+  if (assignment.producedLine < variable.declLine) {
     outs() << "❌ " << userKind << " " << variable;
-    outs() << ": missing line info, using decl ln\n";
-    assignment.startLine = variable.declLine;
+    outs() << ": " << assignment << " produced line starts before decl\n";
     summary = false;
   }
-  if (assignment.startLine < variable.declLine) {
+
+  // Live coordinates
+
+  // Look for the next instruction with source coordinates
+  for (const Instruction *inst = user->getNextNode(); inst;
+       inst = inst->getNextNode()) {
+    if (isa<DbgInfoIntrinsic>(inst))
+      continue;
+    if (const auto debugLoc = inst->getDebugLoc()) {
+      // Already advanced past assignment, use the line directly
+      assignment.liveLine = debugLoc.getLine();
+      break;
+    }
+  }
+  if (!assignment.liveLine) {
     outs() << "❌ " << userKind << " " << variable;
-    outs() << ": assignment " << assignment << " starts before decl\n";
+    outs() << ": missing line line, using decl ln\n";
+    assignment.liveLine = variable.declLine;
     summary = false;
   }
+
+  // Miscellaneous
 
   assignment.varIntrinsic = varIntrinsic;
   assignment.producers = std::move(producers);
@@ -291,9 +315,9 @@ bool addAssignment(const StringRef moduleKind,
   if (moduleKind == "Before")
     assignment.removable = checkStaticRemovability(assignment);
 
-  KLEE_DEBUG(dbgs() << "  Added assignment starting at src ln "
-                    << assignment.startLine << ", col "
-                    << assignment.startColumn << "\n");
+  KLEE_DEBUG(dbgs() << "  Added assignment " << assignment << ", prod ln "
+                    << assignment.producedLine << ", col "
+                    << assignment.producedColumn << "\n");
   assignments.push_back(std::move(assignment));
   return summary;
 }
@@ -433,16 +457,15 @@ void computeAssignmentGeneration(Function &function, VariablesSet &variables,
       // Dominance is checked **after** source coordinates
       const int leftDom = domTree.dominates(left.user, right.user) ? -1 : 1;
       const int rightDom = 0;
-      return std::tie(left.startLine, leftDom) <
-             std::tie(right.startLine, rightDom);
+      return std::tie(left.liveLine, leftDom) <
+             std::tie(right.liveLine, rightDom);
     });
     KLEE_DEBUG(dbgs() << "Computing generations: " << variable << "\n");
     // Generation is currently incremented for each assignment after sorting
     // Consider only incrementing when source coordinates match
     for (size_t i = 0, e = assignments.size(); i < e; ++i) {
       assignments[i].generation = i;
-      KLEE_DEBUG(dbgs() << "  asm line " << assignments[i].asmLine << ", "
-                        << assignments[i] << "\n");
+      KLEE_DEBUG(dbgs() << "  " << assignments[i] << "\n");
     }
   }
 }
@@ -461,11 +484,11 @@ void buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
       if (assignment.varIntrinsic->isUndef())
         continue;
 
-      unsigned int startLine = assignment.startLine;
+      unsigned int startLine = assignment.liveLine;
       unsigned int startGeneration = assignment.generation;
       unsigned int endLine, endGeneration;
       if ((i + 1) < e) {
-        endLine = assignments[i + 1].startLine;
+        endLine = assignments[i + 1].liveLine;
         endGeneration = assignments[i + 1].generation;
       } else {
         endLine = UINT_MAX;
@@ -576,7 +599,7 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     Assignment *currentAssn = current.second;
     auto &otherRange = otherVToRangeToA.at(variable);
     auto otherAssnLookup =
-        otherRange.find({currentAssn->startLine, currentAssn->generation});
+        otherRange.find({currentAssn->liveLine, currentAssn->generation});
     if (otherAssnLookup == otherRange.end()) {
       if (currentAssn->removable) {
         outs() << "🔔 " << otherKind << " (removable) live range for "
