@@ -11,6 +11,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <climits>
 #include <map>
 #include <tuple>
 #include <utility>
@@ -148,6 +149,8 @@ struct Assignment {
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
                                      const Assignment &assignment) {
   out << "asm ln " << assignment.asmLine;
+  out << ", prod ln " << assignment.producedLine;
+  out << "." << assignment.producedColumn;
   out << ", live ln " << assignment.liveLine;
   out << ", gen " << assignment.generation;
   return out;
@@ -180,8 +183,16 @@ struct Location {
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
                                      const Location &location) {
-  out << "live ln " << location.line;
-  out << ", gen " << location.generation;
+  out << "live ln ";
+  if (location.line == UINT_MAX)
+    out << "∞";
+  else
+    out << location.line;
+  out << ", gen ";
+  if (location.generation == UINT_MAX)
+    out << "∞";
+  else
+    out << location.generation;
   return out;
 }
 

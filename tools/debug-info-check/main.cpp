@@ -54,6 +54,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <climits>
 #include <cstdint>
 #include <cstdlib>
 #include <iterator>
@@ -315,9 +316,7 @@ bool addAssignment(const StringRef moduleKind,
   if (moduleKind == "Before")
     assignment.removable = checkStaticRemovability(assignment);
 
-  KLEE_DEBUG(dbgs() << "  Added assignment " << assignment << ", prod ln "
-                    << assignment.producedLine << ", col "
-                    << assignment.producedColumn << "\n");
+  KLEE_DEBUG(dbgs() << "  Added assignment " << assignment << "\n");
   assignments.push_back(std::move(assignment));
   return summary;
 }
@@ -475,6 +474,9 @@ void buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
                                    RangeToA::Allocator &rangeMapAllocator) {
   for (const auto &variable : variables) {
     auto &assignments = varToAs[variable];
+    if (assignments.empty())
+      continue;
+    KLEE_DEBUG(dbgs() << "Building live ranges: " << variable << "\n");
     for (size_t i = 0, e = assignments.size(); i < e; ++i) {
       auto &assignment = assignments[i];
 
@@ -497,6 +499,9 @@ void buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
 
       Location start = {startLine, startGeneration};
       Location end = {endLine, endGeneration};
+
+      KLEE_DEBUG(dbgs() << "  " << assignment << "\n    " << start << " →\n    "
+                        << end << "\n");
 
       auto &varRange =
           varToRangeToA
