@@ -255,14 +255,30 @@ bool addAssignment(const StringRef moduleKind,
   // When there are multiple producers, consider the start line of the
   // assignment to the be the max of source line numbers from all producers
   // (since the assignment is not observable until all inputs are live).
+  // TODO: Use some kind of worklist approach to reduce nesting here
   for (const auto *producer : producers) {
     if (const auto *producerInstruction = dyn_cast<Instruction>(producer)) {
-      const auto debugLoc = producerInstruction->getDebugLoc();
-      if (debugLoc) {
-        assignment.producedLine =
-            std::max(assignment.producedLine, debugLoc.getLine());
-        assignment.producedColumn =
-            std::max(assignment.producedColumn, debugLoc.getCol());
+      if (const auto *phiNode = dyn_cast<PHINode>(producer)) {
+        for (const Value *incoming : phiNode->incoming_values()) {
+          if (const auto *incomingInstruction =
+                  dyn_cast<Instruction>(incoming)) {
+            const auto debugLoc = incomingInstruction->getDebugLoc();
+            if (debugLoc) {
+              assignment.producedLine =
+                  std::max(assignment.producedLine, debugLoc.getLine());
+              assignment.producedColumn =
+                  std::max(assignment.producedColumn, debugLoc.getCol());
+            }
+          }
+        }
+      } else {
+        const auto debugLoc = producerInstruction->getDebugLoc();
+        if (debugLoc) {
+          assignment.producedLine =
+              std::max(assignment.producedLine, debugLoc.getLine());
+          assignment.producedColumn =
+              std::max(assignment.producedColumn, debugLoc.getCol());
+        }
       }
     } else if (const auto *producerArgument = dyn_cast<Argument>(producer)) {
       // Arguments may be spread over multiple lines, so use the declaration to
