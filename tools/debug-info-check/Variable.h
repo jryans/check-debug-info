@@ -178,12 +178,16 @@ struct Location {
     return std::tie(line, generation) < std::tie(other.line, other.generation);
   }
 
+  bool operator>(const Location &other) const { return other < *this; }
+
   bool operator<=(const Location &other) const { return !(other < *this); }
+
+  bool operator>=(const Location &other) const { return !(*this < other); }
 };
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
                                      const Location &location) {
-  out << "live ln ";
+  out << "prod ln ";
   if (location.line == UINT_MAX)
     out << "∞";
   else

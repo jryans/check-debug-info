@@ -486,11 +486,11 @@ void buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
       if (assignment.varIntrinsic->isUndef())
         continue;
 
-      unsigned int startLine = assignment.liveLine;
+      unsigned int startLine = assignment.producedLine;
       unsigned int startGeneration = assignment.generation;
       unsigned int endLine, endGeneration;
       if ((i + 1) < e) {
-        endLine = assignments[i + 1].liveLine;
+        endLine = assignments[i + 1].producedLine;
         endGeneration = assignments[i + 1].generation;
       } else {
         endLine = UINT_MAX;
@@ -923,9 +923,11 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
       assert(afterRange.stop().line == UINT_MAX &&
              "After live range terminates early");
       // TODO: Does this still make sense with generations...?
-      if (beforeRange.start() != afterRange.start()) {
-        outs() << "❌ Live ranges for " << variable
-               << " don't match: " << beforeRange.start() << " vs. "
+      // After range may start earlier if e.g. a common value is reused from
+      // elsewhere in the program
+      if (beforeRange.start() < afterRange.start()) {
+        outs() << "❌ Live ranges not fully covered " << variable
+               << " don't match: " << beforeRange.start() << " < "
                << afterRange.start() << "\n";
         ++uncovered;
         continue;
