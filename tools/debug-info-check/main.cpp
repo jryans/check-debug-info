@@ -281,11 +281,6 @@ bool addAssignment(const StringRef moduleKind,
     outs() << ": missing produced line, using decl ln\n";
     assignment.producedLine = variable.declLine;
   }
-  if (assignment.producedLine < variable.declLine) {
-    outs() << "❌ " << userKind << " " << variable;
-    outs() << ": " << assignment << " produced line starts before decl\n";
-    summary = false;
-  }
 
   // Live coordinates
 
@@ -304,6 +299,11 @@ bool addAssignment(const StringRef moduleKind,
     outs() << "❌ " << userKind << " " << variable;
     outs() << ": missing line line, using decl ln\n";
     assignment.liveLine = variable.declLine;
+    summary = false;
+  }
+  if (assignment.liveLine < variable.declLine) {
+    outs() << "❌ " << userKind << " " << variable;
+    outs() << ": " << assignment << " live ln starts before decl\n";
     summary = false;
   }
 
