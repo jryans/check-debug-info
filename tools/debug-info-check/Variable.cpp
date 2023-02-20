@@ -232,6 +232,19 @@ ref<Expr> Assignment::evaluate() {
       KLEE_DEBUG(dbgs() << "plus: " << result << "\n");
       stack.back() = std::move(result);
     } break;
+    // 0x23 / 035
+    // Pops the top stack entry, adds it to the unsigned constant operand, and
+    // pushes the result.
+    case dwarf::DW_OP_plus_uconst: {
+      auto arg1 = stack.back();
+      // Assume constants have the width of the source variable
+      auto arg2 = builder->Constant(
+          exprOp.getArg(0), variable->getSizeInBits().getValue());
+      autoTruncate(builder, arg1, arg2);
+      const auto result = builder->Add(arg1, arg2);
+      KLEE_DEBUG(dbgs() << "plus_uconst: " << result << "\n");
+      stack.back() = std::move(result);
+    } break;
     // 0x24 / 036
     // Pops the top two stack entries, shifts the former second entry left
     // (filling with zero bits) by the number of bits specified by the former
