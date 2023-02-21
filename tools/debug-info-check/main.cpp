@@ -485,9 +485,11 @@ void computeAssignmentGeneration(Function &function, VariablesSet &variables,
   }
 }
 
-void buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
+bool buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
                                    VToRangeToA &varToRangeToA,
                                    RangeToA::Allocator &rangeMapAllocator) {
+  bool summary = true;
+
   for (const auto &variable : variables) {
     auto &assignments = varToAs[variable];
     if (assignments.empty())
@@ -523,7 +525,13 @@ void buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
           varToRangeToA
               .emplace(std::make_pair(variable, RangeToA(rangeMapAllocator)))
               .first->second;
-      if (start == end || varRange.overlaps(start, end)) {
+      if (start >= end) {
+        outs() << "❌ Invalid range for " << variable << " from " << start
+               << " to " << end << "\n";
+        summary = false;
+        continue;
+      }
+      if (varRange.overlaps(start, end)) {
         outs() << "🔔 Multiple assignments to variable " << variable
                << " in source range from " << start << " to " << end << "\n";
         continue;
@@ -531,6 +539,8 @@ void buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
       varRange.insert(start, end, &assignment);
     }
   }
+
+  return summary;
 }
 
 SmallString<128> createOutputDir(StringRef moduleFile, StringRef functionName) {
@@ -845,16 +855,16 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   summary &= gatherAssignments("Before", beforeDefinition, beforeInstrInfo,
                                diagnostics, beforeVariables, beforeVToAs);
   computeAssignmentGeneration(beforeDefinition, beforeVariables, beforeVToAs);
-  buildLiveRangeToAssignmentMap(beforeVariables, beforeVToAs, beforeVToRangeToA,
-                                rangeMapAllocator);
+  summary &= buildLiveRangeToAssignmentMap(
+      beforeVariables, beforeVToAs, beforeVToRangeToA, rangeMapAllocator);
   if (!beforeVariables.empty())
     KLEE_DEBUG(dbgs() << "\n");
 
   summary &= gatherAssignments("After", afterDefinition, afterInstrInfo,
                                diagnostics, afterVariables, afterVToAs);
   computeAssignmentGeneration(afterDefinition, afterVariables, afterVToAs);
-  buildLiveRangeToAssignmentMap(afterVariables, afterVToAs, afterVToRangeToA,
-                                rangeMapAllocator);
+  summary &= buildLiveRangeToAssignmentMap(afterVariables, afterVToAs,
+                                           afterVToRangeToA, rangeMapAllocator);
   if (!afterVariables.empty())
     KLEE_DEBUG(dbgs() << "\n");
 
