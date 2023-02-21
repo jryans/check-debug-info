@@ -469,11 +469,10 @@ void computeAssignmentGeneration(Function &function, VariablesSet &variables,
     if (assignments.empty())
       continue;
     sort(assignments, [&](const Assignment &left, const Assignment &right) {
-      // Dominance is checked **after** source coordinates
-      const int leftDom = domTree.dominates(left.user, right.user) ? -1 : 1;
-      const int rightDom = 0;
-      return std::tie(left.liveLine, leftDom) <
-             std::tie(right.liveLine, rightDom);
+      // Use dominance to sort assignments
+      // TODO: Try checking instructions before and after to detect loop
+      // iteration case (instead of dominance)
+      return domTree.dominates(left.user, right.user);
     });
     KLEE_DEBUG(dbgs() << "Computing generations: " << variable << "\n");
     // Generation is currently incremented for each assignment after sorting
