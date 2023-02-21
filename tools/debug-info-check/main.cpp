@@ -441,16 +441,100 @@ bool gatherAssignments(const StringRef moduleKind, const Function &function,
   return summary;
 }
 
+bool checkEquivalence(const Variable &variable, Assignment &currentAssn,
+                      Assignment &otherAssn) {
+  static Solver *coreSolver = createCoreSolver(CoreSolverToUse);
+  // TODO: Remove these path args...
+  static Solver *solver = constructSolverChain(coreSolver, "", "", "", "");
+  static ExprBuilder *builder = createDefaultExprBuilder();
+
+  const auto &otherSymValue = otherAssn.evaluate();
+  const auto &currentSymValue = currentAssn.evaluate();
+
+  KLEE_DEBUG(dbgs() << "Checking equivalence of " << variable << " "
+                    << "from\n"
+                    << "  assn " << currentAssn << "\n"
+                    << "  " << currentAssn.producers << "\n"
+                    << "  " << currentSymValue << "\n"
+                    << "and\n"
+                    << "  assn " << otherAssn << "\n"
+                    << "  " << otherAssn.producers << "\n"
+                    << "  " << otherSymValue << "\n");
+
+  assert(currentSymValue->getWidth() == otherSymValue->getWidth() &&
+         "Bit widths don't match");
+
+  // When both sides are constants, we compare them directly.
+  // Constants don't print their bit widths by default, and the query parser
+  // wants at least one side to have an explicit width.
+  if (const auto *currentConstant =
+          dyn_cast<klee::ConstantExpr>(currentSymValue)) {
+    if (const auto *otherConstant =
+            dyn_cast<klee::ConstantExpr>(otherSymValue)) {
+      return currentConstant->getAPValue() == otherConstant->getAPValue();
+    }
+  }
+
+  // This is conceptually the expression we want to check...
+  ref<Expr> expr = builder->Eq(currentSymValue, otherSymValue);
+  // ...except any arrays point to separate instance at the moment.
+  // For now, the "simplest" way to deduplicate them is to roundtrip through
+  // the parser, which will do it for us.
+  // TODO: Deduplicate the data structures directly
+  std::string queryStr;
+  raw_string_ostream queryStream(queryStr);
+  std::vector<const Array *> symbolicArrays;
+  findSymbolicObjects(currentSymValue, symbolicArrays);
+  // TODO: Perhaps merge current and other arrays properly
+  findSymbolicObjects(otherSymValue, symbolicArrays);
+  for (const auto *array : symbolicArrays) {
+    queryStream << "array " << array->getName();
+    queryStream << "[" << array->getSize() << "]";
+    // KLEE only supports these domain and range sizes currently
+    queryStream << " : w32 -> w8 = symbolic\n";
+  }
+  queryStream << "(query [] " << expr << ")";
+  KLEE_DEBUG(dbgs() << "Query to parse\n" << queryStream.str() << "\n");
+
+  const auto queryMB = MemoryBuffer::getMemBuffer(queryStream.str());
+  auto *parser =
+      Parser::Create("", queryMB.get(), builder, /*clearArray=*/false);
+  SmallVector<const Decl *> decls;
+  for (size_t i = 0, e = symbolicArrays.size(); i < e; ++i) {
+    const auto *decl = parser->ParseTopLevelDecl();
+    assert(isa<ArrayDecl>(decl) && "Array lost during the roundtrip journey");
+    decls.push_back(decl);
+  }
+  const auto *command = parser->ParseTopLevelDecl();
+  if (parser->GetNumErrors()) {
+    klee_error("Unable to parse query");
+  }
+  assert(isa<QueryCommand>(command) &&
+         "Query lost during the roundtrip journey");
+  const auto *queryCommand = cast<QueryCommand>(command);
+  KLEE_DEBUG(dbgs() << "Parsed query\n" << queryCommand->Query << "\n");
+
+  ConstraintSet constraints;
+  Query query(constraints, queryCommand->Query);
+
+  bool result;
+  if (!solver->mustBeTrue(query, result))
+    klee_error("Solver unable to process query");
+
+  delete command;
+  for (const auto *decl : decls) {
+    delete decl;
+  }
+  delete parser;
+
+  return result;
+}
+
 bool filterRedundantAssignments(const StringRef kind,
                                 const VariablesSet &variables, VToAs &varToAs,
                                 const bool completeExecution,
                                 const bool functionCovered) {
   bool summary = true;
-
-  Solver *coreSolver = createCoreSolver(CoreSolverToUse);
-  // TODO: Remove these path args...
-  Solver *solver = constructSolverChain(coreSolver, "", "", "", "");
-  ExprBuilder *builder = createDefaultExprBuilder();
 
   for (const auto &variable : variables) {
     auto &assignments = varToAs[variable];
@@ -508,86 +592,7 @@ bool filterRedundantAssignments(const StringRef kind,
         continue;
       }
 
-      KLEE_DEBUG(dbgs() << "Checking equivalence of " << variable << " "
-                        << "from\n"
-                        << "  assn " << currentAssn << "\n"
-                        << "  " << currentAssn.producers << "\n"
-                        << "  " << currentSymValue << "\n"
-                        << "and\n"
-                        << "  assn " << otherAssn << "\n"
-                        << "  " << otherAssn.producers << "\n"
-                        << "  " << otherSymValue << "\n");
-
-      assert(currentSymValue->getWidth() == otherSymValue->getWidth() &&
-             "Bit widths don't match");
-
-      // When both sides are constants, we compare them directly.
-      // Constants don't print their bit widths by default, and the query parser
-      // wants at least one side to have an explicit width.
-      if (const auto *currentConstant =
-              dyn_cast<klee::ConstantExpr>(currentSymValue)) {
-        if (const auto *otherConstant =
-                dyn_cast<klee::ConstantExpr>(otherSymValue)) {
-          bool result =
-              currentConstant->getAPValue() == otherConstant->getAPValue();
-          if (result) {
-            KLEE_DEBUG(dbgs() << "Removing: " << currentAssn << "\n");
-            assignments.erase(assignments.begin() + i);
-            --i;
-            --e;
-          }
-          KLEE_DEBUG(dbgs() << "\n");
-          continue;
-        }
-      }
-
-      // This is conceptually the expression we want to check...
-      ref<Expr> expr = builder->Eq(currentSymValue, otherSymValue);
-      // ...except any arrays point to separate instance at the moment.
-      // For now, the "simplest" way to deduplicate them is to roundtrip through
-      // the parser, which will do it for us.
-      // TODO: Deduplicate the data structures directly
-      std::string queryStr;
-      raw_string_ostream queryStream(queryStr);
-      std::vector<const Array *> symbolicArrays;
-      findSymbolicObjects(currentSymValue, symbolicArrays);
-      // TODO: Perhaps merge current and other arrays properly
-      findSymbolicObjects(otherSymValue, symbolicArrays);
-      for (const auto *array : symbolicArrays) {
-        queryStream << "array " << array->getName();
-        queryStream << "[" << array->getSize() << "]";
-        // KLEE only supports these domain and range sizes currently
-        queryStream << " : w32 -> w8 = symbolic\n";
-      }
-      queryStream << "(query [] " << expr << ")";
-      KLEE_DEBUG(dbgs() << "Query to parse\n" << queryStream.str() << "\n");
-
-      const auto queryMB = MemoryBuffer::getMemBuffer(queryStream.str());
-      auto *parser =
-          Parser::Create("", queryMB.get(), builder, /*clearArray=*/false);
-      SmallVector<const Decl *> decls;
-      for (size_t i = 0, e = symbolicArrays.size(); i < e; ++i) {
-        const auto *decl = parser->ParseTopLevelDecl();
-        assert(isa<ArrayDecl>(decl) &&
-               "Array lost during the roundtrip journey");
-        decls.push_back(decl);
-      }
-      const auto *command = parser->ParseTopLevelDecl();
-      if (parser->GetNumErrors()) {
-        klee_error("Unable to parse query");
-      }
-      assert(isa<QueryCommand>(command) &&
-             "Query lost during the roundtrip journey");
-      const auto *queryCommand = cast<QueryCommand>(command);
-      KLEE_DEBUG(dbgs() << "Parsed query\n" << queryCommand->Query << "\n");
-
-      ConstraintSet constraints;
-      Query query(constraints, queryCommand->Query);
-
-      bool result;
-      if (!solver->mustBeTrue(query, result))
-        klee_error("Solver unable to process query");
-
+      bool result = checkEquivalence(variable, currentAssn, otherAssn);
       if (result) {
         KLEE_DEBUG(dbgs() << "Removing: " << currentAssn << "\n");
         assignments.erase(assignments.begin() + i);
@@ -596,12 +601,6 @@ bool filterRedundantAssignments(const StringRef kind,
       }
 
       KLEE_DEBUG(dbgs() << "\n");
-
-      delete command;
-      for (const auto *decl : decls) {
-        delete decl;
-      }
-      delete parser;
     }
   }
 
@@ -738,11 +737,6 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
                  const bool otherFunctionCovered) {
   size_t equal = 0, notEqual = 0, unused = 0, unreachable = 0, removable = 0;
 
-  Solver *coreSolver = createCoreSolver(CoreSolverToUse);
-  // TODO: Remove these path args...
-  Solver *solver = constructSolverChain(coreSolver, "", "", "", "");
-  ExprBuilder *builder = createDefaultExprBuilder();
-
   for (size_t i = 0, e = currentVAs.size(); i < e; ++i) {
     auto &current = currentVAs[i];
     const Variable &variable = current.first;
@@ -775,45 +769,45 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
       KLEE_DEBUG(dbgs() << "\n");
       continue;
     }
-    Assignment *currentAssn = current.second;
+    Assignment &currentAssn = *current.second;
     auto &otherRange = otherVToRangeToA.at(variable);
     auto otherAssnLookup =
-        otherRange.find({currentAssn->liveLine, currentAssn->generation});
+        otherRange.find({currentAssn.liveLine, currentAssn.generation});
     if (otherAssnLookup == otherRange.end()) {
-      if (currentAssn->removable) {
+      if (currentAssn.removable) {
         outs() << "🔔 " << otherKind << " (removable) live range for "
-               << variable << " at " << *currentAssn << " not found\n";
+               << variable << " at " << currentAssn << " not found\n";
         ++removable;
       } else {
         outs() << "❌ " << otherKind << " live range for " << variable << " at "
-               << *currentAssn << " not found\n";
+               << currentAssn << " not found\n";
         ++notEqual;
       }
       KLEE_DEBUG(dbgs() << "\n");
       continue;
     }
-    Assignment *otherAssn = *otherAssnLookup;
+    Assignment &otherAssn = **otherAssnLookup;
     // This does _not_ check symbolic values
-    if (*otherAssn != *currentAssn) {
-      outs() << "🔔 " << otherKind << " " << variable << " assn " << *otherAssn
+    if (otherAssn != currentAssn) {
+      outs() << "🔔 " << otherKind << " " << variable << " assn " << otherAssn
              << " coordinates don't match " << currentKind.lower() << " assn "
-             << *currentAssn << "\n";
+             << currentAssn << "\n";
     }
-    const auto &currentSymValue = currentAssn->evaluate();
-    const auto &otherSymValue = otherAssn->evaluate();
+    const auto &currentSymValue = currentAssn.evaluate();
+    const auto &otherSymValue = otherAssn.evaluate();
     if (!currentSymValue) {
       if (currentCompleteExecution && !currentFunctionCovered) {
         // If execution is complete but some coverage is missing, then relax
         // missing value to unreachable
         outs() << "🔔 " << currentKind << " " << variable << " "
-               << "assn " << *currentAssn << " has no symbolic value "
+               << "assn " << currentAssn << " has no symbolic value "
                << "(likely unreachable) "
-               << "from " << currentAssn->producers << "\n";
+               << "from " << currentAssn.producers << "\n";
         ++unreachable;
       } else {
         outs() << "❌ " << currentKind << " " << variable << " "
-               << "assn " << *currentAssn << " has no symbolic value "
-               << "from " << currentAssn->producers << "\n";
+               << "assn " << currentAssn << " has no symbolic value "
+               << "from " << currentAssn.producers << "\n";
         ++notEqual;
       }
       KLEE_DEBUG(dbgs() << "\n");
@@ -824,107 +818,25 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
         // If execution is complete but some coverage is missing, then relax
         // missing value to unreachable
         outs() << "🔔 " << otherKind << " " << variable << " "
-               << "assn " << *otherAssn << " has no symbolic value "
+               << "assn " << otherAssn << " has no symbolic value "
                << "(likely unreachable) "
-               << "from " << otherAssn->producers << "\n";
+               << "from " << otherAssn.producers << "\n";
         ++unreachable;
       } else {
         outs() << "❌ " << otherKind << " " << variable << " "
-               << "assn " << *otherAssn << " has no symbolic value "
-               << "from " << otherAssn->producers << "\n";
+               << "assn " << otherAssn << " has no symbolic value "
+               << "from " << otherAssn.producers << "\n";
         ++notEqual;
       }
       KLEE_DEBUG(dbgs() << "\n");
       continue;
     }
 
-    KLEE_DEBUG(dbgs() << "Checking equivalence of " << variable << " "
-                      << "from\n"
-                      << "  assn " << *currentAssn << "\n"
-                      << "  " << currentAssn->producers << "\n"
-                      << "  " << currentSymValue << "\n"
-                      << "and\n"
-                      << "  assn " << *otherAssn << "\n"
-                      << "  " << otherAssn->producers << "\n"
-                      << "  " << otherSymValue << "\n");
-
-    assert(currentSymValue->getWidth() == otherSymValue->getWidth() &&
-           "Bit widths don't match");
-
-    // When both sides are constants, we compare them directly.
-    // Constants don't print their bit widths by default, and the query parser
-    // wants at least one side to have an explicit width.
-    if (const auto *currentConstant =
-            dyn_cast<klee::ConstantExpr>(currentSymValue)) {
-      if (const auto *otherConstant =
-              dyn_cast<klee::ConstantExpr>(otherSymValue)) {
-        bool result =
-            currentConstant->getAPValue() == otherConstant->getAPValue();
-        if (!result) {
-          outs() << "❌ " << otherKind << " " << variable << " assn "
-                 << *otherAssn << " symbolic value doesn't match "
-                 << currentKind.lower() << " assn " << *currentAssn << "\n";
-        }
-        if (result)
-          ++equal;
-        else
-          ++notEqual;
-        KLEE_DEBUG(dbgs() << "\n");
-        continue;
-      }
-    }
-
-    // This is conceptually the expression we want to check...
-    ref<Expr> expr = builder->Eq(currentSymValue, otherSymValue);
-    // ...except any arrays point to separate instance at the moment.
-    // For now, the "simplest" way to deduplicate them is to roundtrip through
-    // the parser, which will do it for us.
-    // TODO: Deduplicate the data structures directly
-    std::string queryStr;
-    raw_string_ostream queryStream(queryStr);
-    std::vector<const Array *> symbolicArrays;
-    findSymbolicObjects(currentSymValue, symbolicArrays);
-    // TODO: Perhaps merge current and other arrays properly
-    findSymbolicObjects(otherSymValue, symbolicArrays);
-    for (const auto *array : symbolicArrays) {
-      queryStream << "array " << array->getName();
-      queryStream << "[" << array->getSize() << "]";
-      // KLEE only supports these domain and range sizes currently
-      queryStream << " : w32 -> w8 = symbolic\n";
-    }
-    queryStream << "(query [] " << expr << ")";
-    KLEE_DEBUG(dbgs() << "Query to parse\n" << queryStream.str() << "\n");
-
-    const auto queryMB = MemoryBuffer::getMemBuffer(queryStream.str());
-    auto *parser =
-        Parser::Create("", queryMB.get(), builder, /*clearArray=*/false);
-    SmallVector<const Decl *> decls;
-    for (size_t i = 0, e = symbolicArrays.size(); i < e; ++i) {
-      const auto *decl = parser->ParseTopLevelDecl();
-      assert(isa<ArrayDecl>(decl) && "Array lost during the roundtrip journey");
-      decls.push_back(decl);
-    }
-    const auto *command = parser->ParseTopLevelDecl();
-    if (parser->GetNumErrors()) {
-      klee_error("Unable to parse query");
-    }
-    assert(isa<QueryCommand>(command) &&
-           "Query lost during the roundtrip journey");
-    const auto *queryCommand = cast<QueryCommand>(command);
-    KLEE_DEBUG(dbgs() << "Parsed query\n" << queryCommand->Query << "\n");
-
-    ConstraintSet constraints;
-    Query query(constraints, queryCommand->Query);
-
-    bool result;
-    if (!solver->mustBeTrue(query, result))
-      klee_error("Solver unable to process query");
-
+    bool result = checkEquivalence(variable, currentAssn, otherAssn);
     if (!result) {
-      outs() << "❌ " << otherKind << " " << variable << " assn " << *otherAssn
+      outs() << "❌ " << otherKind << " " << variable << " assn " << otherAssn
              << " symbolic value doesn't match " << currentKind.lower()
-             << " assn " << *currentAssn << "\n";
-      outs() << queryCommand->Query << "\n";
+             << " assn " << currentAssn << "\n";
     }
 
     if (result)
@@ -933,12 +845,6 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
       ++notEqual;
 
     KLEE_DEBUG(dbgs() << "\n");
-
-    delete command;
-    for (const auto *decl : decls) {
-      delete decl;
-    }
-    delete parser;
   }
 
   bool match = !notEqual;
