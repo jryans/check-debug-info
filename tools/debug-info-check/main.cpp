@@ -99,16 +99,6 @@ extern cl::opt<bool> DebugExecutionTrace;
 extern cl::opt<bool> OnlyUncoveredBranchTargets;
 } // namespace klee
 
-bool isInstructionInBlockPrologue(const Instruction *query) {
-  for (const Instruction *inst = query->getPrevNode(); inst;
-       inst = inst->getPrevNode()) {
-    if (!isa<DbgInfoIntrinsic>(inst) && !isa<PHINode>(inst) &&
-        !isa<BitCastInst>(inst))
-      return false;
-  }
-  return true;
-}
-
 bool checkStaticRemovability(const Assignment &assignment) {
   assert(!assignment.removable && "Assignment already known to be removable");
 
@@ -225,16 +215,6 @@ bool addAssignment(const StringRef moduleKind,
   if (assignments.size()) {
     const bool hasPhis = any_of(
         producers, [](const Value *value) { return isa<PHINode>(value); });
-    if (hasPhis) {
-      // Check whether the user instruction is just after phis at block start
-      // If so, then it is a continuation of a previously defined value and can
-      // be skipped here
-      assert(isa<DbgValueInst>(user) && "Non-dbg.value user with phis");
-      if (isInstructionInBlockPrologue(user)) {
-        KLEE_DEBUG(dbgs() << "  Phi-based assignment in prologue, skipping\n");
-        return true;
-      }
-    }
     // Phis are undecided until execution, so we can't filter them here by value
     const auto &lastAssignment = assignments.back();
     if (!hasPhis && lastAssignment.producers == producers) {
@@ -461,7 +441,175 @@ bool gatherAssignments(const StringRef moduleKind, const Function &function,
   return summary;
 }
 
-void computeAssignmentGeneration(Function &function, VariablesSet &variables,
+bool filterRedundantAssignments(const StringRef kind,
+                                const VariablesSet &variables, VToAs &varToAs,
+                                const bool completeExecution,
+                                const bool functionCovered) {
+  bool summary = true;
+
+  Solver *coreSolver = createCoreSolver(CoreSolverToUse);
+  // TODO: Remove these path args...
+  Solver *solver = constructSolverChain(coreSolver, "", "", "", "");
+  ExprBuilder *builder = createDefaultExprBuilder();
+
+  for (const auto &variable : variables) {
+    auto &assignments = varToAs[variable];
+    if (assignments.size() < 2)
+      continue;
+    KLEE_DEBUG(dbgs() << "Filtering redundant " << kind.lower()
+                      << " assignments: " << variable << "\n\n");
+
+    for (size_t i = 1, e = assignments.size(); i < e; ++i) {
+      auto &currentAssn = assignments[i];
+      auto &otherAssn = assignments[i - 1];
+
+      const bool hasPhis =
+          any_of(currentAssn.producers,
+                 [](const Value *value) { return isa<PHINode>(value); });
+
+      // Only attempting to filter phi-based assignments dynamically
+      if (!hasPhis)
+        continue;
+
+      const auto &otherSymValue = otherAssn.evaluate();
+      const auto &currentSymValue = currentAssn.evaluate();
+      if (!currentSymValue) {
+        if (completeExecution && !functionCovered) {
+          // If execution is complete but some coverage is missing, then relax
+          // missing value to unreachable
+          outs() << "🔔 " << kind << " " << variable << " "
+                 << "assn " << currentAssn << " has no symbolic value "
+                 << "(likely unreachable) "
+                 << "from " << currentAssn.producers << "\n";
+        } else {
+          outs() << "❌ " << kind << " " << variable << " "
+                 << "assn " << currentAssn << " has no symbolic value "
+                 << "from " << currentAssn.producers << "\n";
+          summary = false;
+        }
+        KLEE_DEBUG(dbgs() << "\n");
+        continue;
+      }
+      if (!otherSymValue) {
+        if (completeExecution && !functionCovered) {
+          // If execution is complete but some coverage is missing, then relax
+          // missing value to unreachable
+          outs() << "🔔 " << kind << " " << variable << " "
+                 << "assn " << otherAssn << " has no symbolic value "
+                 << "(likely unreachable) "
+                 << "from " << otherAssn.producers << "\n";
+        } else {
+          outs() << "❌ " << kind << " " << variable << " "
+                 << "assn " << otherAssn << " has no symbolic value "
+                 << "from " << otherAssn.producers << "\n";
+          summary = false;
+        }
+        KLEE_DEBUG(dbgs() << "\n");
+        continue;
+      }
+
+      KLEE_DEBUG(dbgs() << "Checking equivalence of " << variable << " "
+                        << "from\n"
+                        << "  assn " << currentAssn << "\n"
+                        << "  " << currentAssn.producers << "\n"
+                        << "  " << currentSymValue << "\n"
+                        << "and\n"
+                        << "  assn " << otherAssn << "\n"
+                        << "  " << otherAssn.producers << "\n"
+                        << "  " << otherSymValue << "\n");
+
+      assert(currentSymValue->getWidth() == otherSymValue->getWidth() &&
+             "Bit widths don't match");
+
+      // When both sides are constants, we compare them directly.
+      // Constants don't print their bit widths by default, and the query parser
+      // wants at least one side to have an explicit width.
+      if (const auto *currentConstant =
+              dyn_cast<klee::ConstantExpr>(currentSymValue)) {
+        if (const auto *otherConstant =
+                dyn_cast<klee::ConstantExpr>(otherSymValue)) {
+          bool result =
+              currentConstant->getAPValue() == otherConstant->getAPValue();
+          if (result) {
+            KLEE_DEBUG(dbgs() << "Removing: " << currentAssn << "\n");
+            assignments.erase(assignments.begin() + i);
+            --i;
+            --e;
+          }
+          KLEE_DEBUG(dbgs() << "\n");
+          continue;
+        }
+      }
+
+      // This is conceptually the expression we want to check...
+      ref<Expr> expr = builder->Eq(currentSymValue, otherSymValue);
+      // ...except any arrays point to separate instance at the moment.
+      // For now, the "simplest" way to deduplicate them is to roundtrip through
+      // the parser, which will do it for us.
+      // TODO: Deduplicate the data structures directly
+      std::string queryStr;
+      raw_string_ostream queryStream(queryStr);
+      std::vector<const Array *> symbolicArrays;
+      findSymbolicObjects(currentSymValue, symbolicArrays);
+      // TODO: Perhaps merge current and other arrays properly
+      findSymbolicObjects(otherSymValue, symbolicArrays);
+      for (const auto *array : symbolicArrays) {
+        queryStream << "array " << array->getName();
+        queryStream << "[" << array->getSize() << "]";
+        // KLEE only supports these domain and range sizes currently
+        queryStream << " : w32 -> w8 = symbolic\n";
+      }
+      queryStream << "(query [] " << expr << ")";
+      KLEE_DEBUG(dbgs() << "Query to parse\n" << queryStream.str() << "\n");
+
+      const auto queryMB = MemoryBuffer::getMemBuffer(queryStream.str());
+      auto *parser =
+          Parser::Create("", queryMB.get(), builder, /*clearArray=*/false);
+      SmallVector<const Decl *> decls;
+      for (size_t i = 0, e = symbolicArrays.size(); i < e; ++i) {
+        const auto *decl = parser->ParseTopLevelDecl();
+        assert(isa<ArrayDecl>(decl) &&
+               "Array lost during the roundtrip journey");
+        decls.push_back(decl);
+      }
+      const auto *command = parser->ParseTopLevelDecl();
+      if (parser->GetNumErrors()) {
+        klee_error("Unable to parse query");
+      }
+      assert(isa<QueryCommand>(command) &&
+             "Query lost during the roundtrip journey");
+      const auto *queryCommand = cast<QueryCommand>(command);
+      KLEE_DEBUG(dbgs() << "Parsed query\n" << queryCommand->Query << "\n");
+
+      ConstraintSet constraints;
+      Query query(constraints, queryCommand->Query);
+
+      bool result;
+      if (!solver->mustBeTrue(query, result))
+        klee_error("Solver unable to process query");
+
+      if (result) {
+        KLEE_DEBUG(dbgs() << "Removing: " << currentAssn << "\n");
+        assignments.erase(assignments.begin() + i);
+        --i;
+        --e;
+      }
+
+      KLEE_DEBUG(dbgs() << "\n");
+
+      delete command;
+      for (const auto *decl : decls) {
+        delete decl;
+      }
+      delete parser;
+    }
+  }
+
+  return summary;
+}
+
+void computeAssignmentGeneration(Function &function,
+                                 const VariablesSet &variables,
                                  VToAs &varToAs) {
   DominatorTree domTree(function);
   for (const auto &variable : variables) {
@@ -484,8 +632,8 @@ void computeAssignmentGeneration(Function &function, VariablesSet &variables,
   }
 }
 
-bool buildLiveRangeToAssignmentMap(VariablesSet &variables, VToAs &varToAs,
-                                   VToRangeToA &varToRangeToA,
+bool buildLiveRangeToAssignmentMap(const VariablesSet &variables,
+                                   VToAs &varToAs, VToRangeToA &varToRangeToA,
                                    RangeToA::Allocator &rangeMapAllocator) {
   bool summary = true;
 
@@ -624,6 +772,7 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
                << " not found\n";
         ++notEqual;
       }
+      KLEE_DEBUG(dbgs() << "\n");
       continue;
     }
     Assignment *currentAssn = current.second;
@@ -640,6 +789,7 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
                << *currentAssn << " not found\n";
         ++notEqual;
       }
+      KLEE_DEBUG(dbgs() << "\n");
       continue;
     }
     Assignment *otherAssn = *otherAssnLookup;
@@ -666,6 +816,7 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
                << "from " << currentAssn->producers << "\n";
         ++notEqual;
       }
+      KLEE_DEBUG(dbgs() << "\n");
       continue;
     }
     if (!otherSymValue) {
@@ -683,6 +834,7 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
                << "from " << otherAssn->producers << "\n";
         ++notEqual;
       }
+      KLEE_DEBUG(dbgs() << "\n");
       continue;
     }
 
@@ -843,10 +995,6 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   VToAs beforeVToAs;
   VToAs afterVToAs;
 
-  RangeToA::Allocator rangeMapAllocator;
-  VToRangeToA beforeVToRangeToA;
-  VToRangeToA afterVToRangeToA;
-
   // Borrow KLEE's instruction info analysis for now...
   InstructionInfoTable beforeInstrInfo(*beforeModule);
   InstructionInfoTable afterInstrInfo(*afterModule);
@@ -854,16 +1002,12 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   summary &= gatherAssignments("Before", beforeDefinition, beforeInstrInfo,
                                diagnostics, beforeVariables, beforeVToAs);
   computeAssignmentGeneration(beforeDefinition, beforeVariables, beforeVToAs);
-  summary &= buildLiveRangeToAssignmentMap(
-      beforeVariables, beforeVToAs, beforeVToRangeToA, rangeMapAllocator);
   if (!beforeVariables.empty())
     KLEE_DEBUG(dbgs() << "\n");
 
   summary &= gatherAssignments("After", afterDefinition, afterInstrInfo,
                                diagnostics, afterVariables, afterVToAs);
   computeAssignmentGeneration(afterDefinition, afterVariables, afterVToAs);
-  summary &= buildLiveRangeToAssignmentMap(afterVariables, afterVToAs,
-                                           afterVToRangeToA, rangeMapAllocator);
   if (!afterVariables.empty())
     KLEE_DEBUG(dbgs() << "\n");
 
@@ -878,7 +1022,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   outs() << "\n"; // ### Variables
 
-  outs() << "### Assignments\n\n";
+  outs() << "### Symbolic values\n\n";
 
   // TODO: Remove this and hand `ValuesCollector` the live range map instead...?
   VAs beforeFlatVAs;
@@ -898,6 +1042,87 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
     }
   }
   sort(afterFlatVAs);
+
+  // Collect symbolic values for before module
+  std::unique_ptr<Interpreter> beforeInterpreter;
+  {
+    KLEE_DEBUG(dbgs() << "#### Before values\n\n");
+    SmallString<128> outputDir = createOutputDir(beforeFile, functionName);
+    beforeInterpreter =
+        collectValues(runtimeDir, std::move(beforeModule),
+                      beforeDefinition.getName(), outputDir, beforeFlatVAs);
+    KLEE_DEBUG(dbgs() << "\n");
+  }
+  bool beforeCompleteExecution = beforeInterpreter->hasCompleteExecution();
+  bool beforeFunctionCovered =
+      beforeInterpreter->isFunctionCovered(beforeDefinition);
+  if (!beforeCompleteExecution) {
+    outs() << "❌ Unable to execute all before program states\n\n";
+    summary = false;
+  }
+
+  // Collect symbolic values for after module
+  std::unique_ptr<Interpreter> afterInterpreter;
+  {
+    KLEE_DEBUG(dbgs() << "#### After values\n\n");
+    SmallString<128> outputDir = createOutputDir(afterFile, functionName);
+    afterInterpreter =
+        collectValues(runtimeDir, std::move(afterModule),
+                      afterDefinition.getName(), outputDir, afterFlatVAs);
+    KLEE_DEBUG(dbgs() << "\n");
+  }
+  bool afterCompleteExecution = afterInterpreter->hasCompleteExecution();
+  bool afterFunctionCovered =
+      afterInterpreter->isFunctionCovered(afterDefinition);
+  if (!afterCompleteExecution) {
+    outs() << "❌ Unable to execute all after program states\n\n";
+    summary = false;
+  }
+
+  outs() << "### Assignments\n\n";
+
+  // Filter out any phi-based redundant assignments now that we have values
+
+  summary &= filterRedundantAssignments("Before", beforeVariables, beforeVToAs,
+                                        beforeCompleteExecution,
+                                        beforeFunctionCovered);
+
+  summary &=
+      filterRedundantAssignments("After", afterVariables, afterVToAs,
+                                 afterCompleteExecution, afterFunctionCovered);
+
+  // May have removed assignments, rebuild flat VAs
+  // TODO: Rethink use of data structures instead...
+  beforeFlatVAs.clear();
+  for (auto &varAssignments : beforeVToAs) {
+    const auto &variable = varAssignments.first;
+    for (auto &assn : varAssignments.second) {
+      beforeFlatVAs.push_back({variable, &assn});
+    }
+  }
+  sort(beforeFlatVAs);
+  afterFlatVAs.clear();
+  for (auto &varAssignments : afterVToAs) {
+    const auto &variable = varAssignments.first;
+    for (auto &assn : varAssignments.second) {
+      afterFlatVAs.push_back({variable, &assn});
+    }
+  }
+  sort(afterFlatVAs);
+
+  RangeToA::Allocator rangeMapAllocator;
+  VToRangeToA beforeVToRangeToA;
+  VToRangeToA afterVToRangeToA;
+
+  computeAssignmentGeneration(beforeDefinition, beforeVariables, beforeVToAs);
+  summary &= buildLiveRangeToAssignmentMap(
+      beforeVariables, beforeVToAs, beforeVToRangeToA, rangeMapAllocator);
+  KLEE_DEBUG(dbgs() << "\n");
+
+  computeAssignmentGeneration(afterDefinition, afterVariables, afterVToAs);
+  summary &= buildLiveRangeToAssignmentMap(afterVariables, afterVToAs,
+                                           afterVToRangeToA, rangeMapAllocator);
+  KLEE_DEBUG(dbgs() << "\n");
 
   // Verify all before live ranges are covered by after ranges
   {
@@ -973,44 +1198,6 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   }
 
   outs() << "\n"; // ### Assignments
-
-  outs() << "### Symbolic values\n\n";
-
-  // Collect symbolic values for before module
-  std::unique_ptr<Interpreter> beforeInterpreter;
-  {
-    KLEE_DEBUG(dbgs() << "#### Before values\n\n");
-    SmallString<128> outputDir = createOutputDir(beforeFile, functionName);
-    beforeInterpreter =
-        collectValues(runtimeDir, std::move(beforeModule),
-                      beforeDefinition.getName(), outputDir, beforeFlatVAs);
-    KLEE_DEBUG(dbgs() << "\n");
-  }
-  bool beforeCompleteExecution = beforeInterpreter->hasCompleteExecution();
-  bool beforeFunctionCovered =
-      beforeInterpreter->isFunctionCovered(beforeDefinition);
-  if (!beforeCompleteExecution) {
-    outs() << "❌ Unable to execute all before program states\n\n";
-    summary = false;
-  }
-
-  // Collect symbolic values for after module
-  std::unique_ptr<Interpreter> afterInterpreter;
-  {
-    KLEE_DEBUG(dbgs() << "#### After values\n\n");
-    SmallString<128> outputDir = createOutputDir(afterFile, functionName);
-    afterInterpreter =
-        collectValues(runtimeDir, std::move(afterModule),
-                      afterDefinition.getName(), outputDir, afterFlatVAs);
-    KLEE_DEBUG(dbgs() << "\n");
-  }
-  bool afterCompleteExecution = afterInterpreter->hasCompleteExecution();
-  bool afterFunctionCovered =
-      afterInterpreter->isFunctionCovered(afterDefinition);
-  if (!afterCompleteExecution) {
-    outs() << "❌ Unable to execute all after program states\n\n";
-    summary = false;
-  }
 
   // Check before assignments against after assignments on the same source line
   outs() << "#### Check before against after\n\n";
