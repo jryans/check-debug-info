@@ -242,8 +242,8 @@ collectValues(StringRef runtimeDir, std::unique_ptr<llvm::Module> mainModule,
   Interpreter::ModuleOptions moduleOpts(runtimeDir.str(), functionName.str(),
                                         optSuffix,
                                         /*Optimize=*/false,
-                                        /*CheckDivZero=*/false,
-                                        /*CheckOvershift=*/false);
+                                        /*CheckDivZero=*/true,
+                                        /*CheckOvershift=*/true);
 
   // TODO: WithPOSIXRuntime...?
   // TODO: libc++...?
