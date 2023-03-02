@@ -1074,10 +1074,12 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
       const auto &beforeRange = beforeRangeLookup->second;
       const auto &afterRange = afterRangeLookup->second;
 
-      assert(beforeRange.stop().line == UINT_MAX &&
-             "Before live range terminates early");
-      assert(afterRange.stop().line == UINT_MAX &&
-             "After live range terminates early");
+      if (beforeRange.stop().line != UINT_MAX)
+        outs() << "🔔 Before live range for " << variable
+               << " terminates early\n";
+      if (afterRange.stop().line != UINT_MAX)
+        outs() << "🔔 After live range for " << variable
+               << " terminates early\n";
       // TODO: Does this still make sense with generations...?
       // After range may start earlier if e.g. a common value is reused from
       // elsewhere in the program
