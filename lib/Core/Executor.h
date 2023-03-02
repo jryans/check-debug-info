@@ -355,7 +355,8 @@ private:
   ObjectState *buildSymbolicValue(ExecutionState &state,
                                   const llvm::Value *allocSite,
                                   llvm::Type *valueType,
-                                  const llvm::Twine &valueName);
+                                  const llvm::Twine &valueName,
+                                  const unsigned count = 1);
 
   /// Called when entering a function as part of the function-independent mode
   /// which isolates each function for independent analysis. In particular, this

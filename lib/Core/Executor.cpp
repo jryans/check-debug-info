@@ -4742,7 +4742,8 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
 ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
                                           const llvm::Value *allocSite,
                                           llvm::Type *valueType,
-                                          const llvm::Twine &valueName) {
+                                          const llvm::Twine &valueName,
+                                          const unsigned count) {
   assert(!valueType->isVoidTy() && !valueType->isVectorTy() &&
          "Unexpected type when building symbolic value");
   if (const auto *arrayType = dyn_cast<ArrayType>(valueType)) {
@@ -4750,6 +4751,8 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     assert(!containedType->isPointerTy() &&
            "Unexpected pointer inside array type");
   }
+  assert((count == 1 || valueType->isIntegerTy()) &&
+         "Unexpected type requesting multiple instances");
 
   // Allocate memory to hold symbolic value
   unsigned storeSizeBytes;
@@ -4760,6 +4763,7 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
   } else {
     storeSizeBytes = kmodule->targetData->getTypeStoreSize(valueType);
   }
+  storeSizeBytes *= count;
   const MemoryObject *valueMemory =
       memory->allocate(storeSizeBytes,
                        /*isLocal=*/true, /*isGlobal=*/false,
@@ -4769,9 +4773,12 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
   if (!valueMemory)
     klee_error("Could not allocate memory for value");
 
-  if (DebugExecutionTrace)
-    *execTraceText << "Building symbolic value for " << *valueType << " "
-                   << valueName << " (" << storeSizeBytes * 8 << "b)…\n";
+  if (DebugExecutionTrace) {
+    *execTraceText << "Building symbolic value for " << *valueType;
+    if (count > 1)
+      *execTraceText << "x" << count;
+    *execTraceText << " " << valueName << " (" << storeSizeBytes * 8 << "b)…\n";
+  }
 
   // Create object state instance from the new memory
   assert(!valueName.str().empty() && "Unexpected empty symbolic value name");
@@ -4789,8 +4796,12 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     // Build the pointee value
     // TODO: Add the nullptr case as well...?
     // TODO: Add the array case as well...?
+    unsigned pointeeCount = 1;
+    // Allocate more room for byte arrays
+    if (pointeeType == Type::getInt8Ty(pointeeType->getContext()))
+      pointeeCount = 32;
     ObjectState *pointeeState = buildSymbolicValue(
-        state, allocSite, pointeeType, valueName + ".deref");
+        state, allocSite, pointeeType, valueName + ".deref", pointeeCount);
     // Store constant pointer value to avoid symbolic memory accesses
     valueState->write(0, pointeeState->getObject()->getBaseExpr());
   } else if (auto *structType = dyn_cast<StructType>(valueType)) {
@@ -4806,9 +4817,13 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
         // Build the pointee value
         // TODO: Add the nullptr case as well...?
         // TODO: Add the array case as well...?
-        ObjectState *pointeeState =
-            buildSymbolicValue(state, allocSite, pointeeType,
-                               valueName + ".e" + std::to_string(i) + ".deref");
+        unsigned pointeeCount = 1;
+        // Allocate more room for byte arrays
+        if (pointeeType == Type::getInt8Ty(pointeeType->getContext()))
+          pointeeCount = 32;
+        ObjectState *pointeeState = buildSymbolicValue(
+            state, allocSite, pointeeType,
+            valueName + ".e" + std::to_string(i) + ".deref", pointeeCount);
         // Store constant pointer value to avoid symbolic memory accesses
         valueState->write(layout->getElementOffset(i),
                           pointeeState->getObject()->getBaseExpr());
@@ -4840,8 +4855,11 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     } else {
       typeSizeBits = kmodule->targetData->getTypeSizeInBits(valueType);
     }
-    *execTraceText << "Built symbolic value for " << valueName << ": "
-                   << valueState->read(0, typeSizeBits) << "\n";
+    typeSizeBits *= count;
+    *execTraceText << "Built symbolic value for " << valueName;
+    if (count > 1)
+      *execTraceText << "x" << count;
+    *execTraceText << ": " << valueState->read(0, typeSizeBits) << "\n";
   }
 
   return valueState;
