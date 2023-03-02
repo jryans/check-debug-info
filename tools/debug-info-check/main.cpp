@@ -293,7 +293,7 @@ bool addAssignment(const StringRef moduleKind,
   }
   if (!assignment.liveLine) {
     outs() << "❌ " << userKind << " " << variable;
-    outs() << ": missing line line, using decl ln\n";
+    outs() << ": missing live line, using decl ln\n";
     assignment.liveLine = variable.declLine;
     summary = false;
   }
