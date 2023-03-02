@@ -1829,13 +1829,14 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
   if (isa_and_nonnull<DbgInfoIntrinsic>(i))
     return;
 
-  // For functions with a local definition (or those we've manufactured), skip
+  // For other (non-intrinsic) functions (or those we've manufactured), skip
   // actually calling when independent function mode is used.
   // TODO: Should this be another interpreter handler as well...?
   // TODO: Work out how to assume KLEE checks pass, then remove the function
   // name check here
-  if ((!f->isDeclaration() || manufacturedFunctions.count(f)) &&
-      interpreterOpts.IndependentFunctions &&
+  if (interpreterOpts.IndependentFunctions &&
+      (f->getIntrinsicID() == Intrinsic::not_intrinsic ||
+       manufacturedFunctions.count(f)) &&
       // Allow KLEE check functions (for now)
       !isCheck(f)) {
     assert(!f->getName().empty() && "Function without name");
