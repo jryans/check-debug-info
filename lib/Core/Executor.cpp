@@ -1873,9 +1873,12 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
       if (!argType->isPointerTy() || arg->onlyReadsMemory())
         continue;
 
-      llvm::SmallString<6> argName = arg->getName();
-      if (argName.empty()) {
-        argName = "arg";
+      llvm::SmallString<32> argName = f->getName();
+      argName += ".";
+      if (!arg->getName().empty()) {
+        argName += arg->getName();
+      } else {
+        argName += "arg";
         argName += std::to_string(arg->getArgNo());
       }
 
