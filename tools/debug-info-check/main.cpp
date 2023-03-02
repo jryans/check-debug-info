@@ -1082,8 +1082,8 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
       // After range may start earlier if e.g. a common value is reused from
       // elsewhere in the program
       if (beforeRange.start() < afterRange.start()) {
-        outs() << "❌ Live ranges not fully covered " << variable
-               << " don't match: " << beforeRange.start() << " < "
+        outs() << "❌ Live ranges for " << variable
+               << " not fully covered: " << beforeRange.start() << " < "
                << afterRange.start() << "\n";
         ++uncovered;
         continue;
