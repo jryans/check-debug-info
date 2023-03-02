@@ -1929,11 +1929,13 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
 
       // Write new value to existing pointer's state
       // It will be retrieved by any future accesses to the pointer's address
-      state.addressSpace.getWriteable(memory, pointerState)
-          ->write(offset, pointeeState->read(0, pointeeTypeSizeBits));
+      ObjectState *newPointerState =
+          state.addressSpace.getWriteable(memory, pointerState);
+      newPointerState->write(offset,
+                             pointeeState->read(0, pointeeTypeSizeBits));
       if (DebugExecutionTrace)
         *execTraceText << "Pointee value after reset to symbolic: "
-                       << pointerState->read(offset, pointeeTypeSizeBits)
+                       << newPointerState->read(offset, pointeeTypeSizeBits)
                        << "\n";
     }
 
