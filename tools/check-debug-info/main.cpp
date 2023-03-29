@@ -292,10 +292,9 @@ bool addAssignment(const StringRef moduleKind,
     }
   }
   if (!assignment.liveLine) {
-    outs() << "❌ " << userKind << " " << variable;
+    outs() << "🔔 " << userKind << " " << variable;
     outs() << ": missing live ln, using produced ln + 1\n";
     assignment.liveLine = assignment.producedLine + 1;
-    summary = false;
   }
   if (assignment.liveLine < variable.declLine) {
     outs() << "❌ " << userKind << " " << variable;
