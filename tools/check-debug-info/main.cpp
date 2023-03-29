@@ -69,7 +69,7 @@ using namespace klee::expr;
 using namespace llvm;
 using namespace clang::tooling;
 
-#define DEBUG_TYPE "debug-info-check"
+#define DEBUG_TYPE "check-debug-info"
 
 namespace {
 
