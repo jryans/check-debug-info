@@ -619,6 +619,8 @@ void computeAssignmentGeneration(Function &function,
       // Use dominance to sort assignments
       // TODO: Try checking instructions before and after to detect loop
       // iteration case (instead of dominance)
+      // TODO: Leverage IR-level variable scope info to process blocks and loops
+      // like source language
       return domTree.dominates(left.user, right.user);
     });
     KLEE_DEBUG(dbgs() << "Computing generations: " << variable << "\n");
