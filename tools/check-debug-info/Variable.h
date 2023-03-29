@@ -187,7 +187,7 @@ struct Location {
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
                                      const Location &location) {
-  out << "prod ln ";
+  out << "live ln ";
   if (location.line == UINT_MAX)
     out << "∞";
   else

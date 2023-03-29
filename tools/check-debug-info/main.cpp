@@ -666,11 +666,15 @@ bool buildLiveRangeToAssignmentMap(const VariablesSet &variables,
       if (assignment.varIntrinsic->isUndef())
         continue;
 
-      unsigned int startLine = assignment.producedLine;
+      // Now that the live line is at least producer line + 1, it provides a
+      // more stable bounds for live ranges
+      // TODO: Perhaps use producer for start and live for end, allowing ranges
+      // to overlap...?
+      unsigned int startLine = assignment.liveLine;
       unsigned int startGeneration = assignment.generation;
       unsigned int endLine, endGeneration;
       if ((i + 1) < e) {
-        endLine = assignments[i + 1].producedLine;
+        endLine = assignments[i + 1].liveLine;
         endGeneration = assignments[i + 1].generation;
       } else {
         endLine = UINT_MAX;
