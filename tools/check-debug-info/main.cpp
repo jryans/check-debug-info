@@ -296,6 +296,11 @@ bool addAssignment(const StringRef moduleKind,
     outs() << ": missing live ln, using produced ln + 1\n";
     assignment.liveLine = assignment.producedLine + 1;
   }
+  if (assignment.liveLine <= assignment.producedLine) {
+    outs() << "🔔 " << userKind << " " << variable;
+    outs() << ": live ln too early, using produced ln + 1\n";
+    assignment.liveLine = assignment.producedLine + 1;
+  }
   if (assignment.liveLine < variable.declLine) {
     outs() << "❌ " << userKind << " " << variable;
     outs() << ": " << assignment << " live ln starts before decl\n";
