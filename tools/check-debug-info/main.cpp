@@ -616,12 +616,20 @@ void computeAssignmentGeneration(Function &function,
     if (assignments.empty())
       continue;
     sort(assignments, [&](const Assignment &left, const Assignment &right) {
-      // Use dominance to sort assignments
+      // Dominance is checked **after** source coordinates
+      // Dominance is currently used mainly as a tie-break of sorts for e.g.
+      // loop headers where there are several parts on the same source line but
+      // with very different semantic order
       // TODO: Try checking instructions before and after to detect loop
       // iteration case (instead of dominance)
       // TODO: Leverage IR-level variable scope info to process blocks and loops
       // like source language
-      return domTree.dominates(left.user, right.user);
+      // TODO: Consider special casing loop iteration expression via some kind
+      // of fake / ghost location
+      const int leftDom = domTree.dominates(left.user, right.user) ? -1 : 1;
+      const int rightDom = 0;
+      return std::tie(left.liveLine, leftDom) <
+             std::tie(right.liveLine, rightDom);
     });
     KLEE_DEBUG(dbgs() << "Computing generations: " << variable << "\n");
     // Generation is currently incremented for each assignment after sorting
