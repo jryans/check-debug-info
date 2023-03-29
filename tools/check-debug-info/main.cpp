@@ -283,7 +283,9 @@ bool addAssignment(const StringRef moduleKind,
   // Look for the next instruction with source coordinates
   for (const Instruction *inst = user->getNextNode(); inst;
        inst = inst->getNextNode()) {
-    if (isa<DbgInfoIntrinsic>(inst))
+    // Ignore all intrinsics for when looking for live line
+    // Some (e.g. lifetime) would otherwise give spurious values
+    if (isa<IntrinsicInst>(inst))
       continue;
     if (const auto debugLoc = inst->getDebugLoc()) {
       // Already advanced past assignment, use the line directly
