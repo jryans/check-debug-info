@@ -586,18 +586,6 @@ Executor::setModule(std::vector<std::unique_ptr<llvm::Module>> &modules,
 
   specialFunctionHandler->bind();
 
-  if (StatsTracker::useStatistics() || userSearcherRequiresMD2U()) {
-    statsTracker = 
-      new StatsTracker(*this,
-                       interpreterHandler->getOutputFilename("assembly.ll"),
-                       userSearcherRequiresMD2U());
-  }
-
-  // Initialize the context.
-  DataLayout *TD = kmodule->targetData.get();
-  Context::initialize(TD->isLittleEndian(),
-                      (Expr::Width)TD->getPointerSizeInBits());
-
   return kmodule->module.get();
 }
 
@@ -4891,6 +4879,18 @@ void Executor::enterIndependentFunction(ExecutionState &state, KFunction *kf) {
 /***/
 
 void Executor::runFunctionSetup(ExecutionState &state) {
+  if (StatsTracker::useStatistics() || userSearcherRequiresMD2U()) {
+    statsTracker =
+      new StatsTracker(*this,
+                       interpreterHandler->getOutputFilename("assembly.ll"),
+                       userSearcherRequiresMD2U());
+  }
+
+  // Initialize the context.
+  DataLayout *TD = kmodule->targetData.get();
+  Context::initialize(TD->isLittleEndian(),
+                      (Expr::Width)TD->getPointerSizeInBits());
+
   if (pathWriter)
     state.pathOS = pathWriter->open();
   if (symPathWriter)
