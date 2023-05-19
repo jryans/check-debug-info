@@ -40,43 +40,6 @@ using namespace llvm;
 
 #define DEBUG_TYPE "values-collector"
 
-class VCHandler : public InterpreterHandler {
-private:
-  StringRef outputDir;
-  VAs &varsAssignments;
-  std::unique_ptr<llvm::raw_fd_ostream> infoStream;
-  Interpreter *interpreter;
-
-public:
-  VCHandler(StringRef outputDir, VAs &varsAssignments)
-      : outputDir(outputDir), varsAssignments(varsAssignments),
-        infoStream(openOutputFile("info")) {}
-
-  void setInterpreter(Interpreter *interp) { interpreter = interp; }
-
-  llvm::raw_ostream &getInfoStream() const override { return *infoStream; }
-
-  std::string getOutputFilename(const std::string &filename) override;
-  std::unique_ptr<llvm::raw_fd_ostream>
-  openOutputFile(const std::string &filename) override;
-
-  void incPathsCompleted() override {}
-  void incPathsExplored(std::uint32_t num = 1) override {}
-
-  void visitBeforeExecution(ExecutionState &state, ExecutionEvent &event,
-                            KInstruction *ki) override;
-  void recordValue(ExecutionState &state, ExecutionEvent &event,
-                   const Instruction *user, const Value *producer,
-                   ref<Expr> symbolicValue);
-
-  void processTestCase(const ExecutionState &state, const char *err,
-                       const char *suffix) override {}
-
-private:
-  ref<Expr> resolvePointers(ExecutionState &state, const Value *producer,
-                            ref<Expr> symbolicValue);
-};
-
 std::string VCHandler::getOutputFilename(const std::string &filename) {
   SmallString<128> path(outputDir);
   sys::path::append(path, filename);
@@ -147,7 +110,7 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &event,
   // Look for assignments matching the user
   // TODO: Gather all users up front first for faster filtering...?
   const auto matchingAssignments =
-      make_filter_range(varsAssignments, [&](VA &pair) {
+      make_filter_range(*varsAssignments, [&](VA &pair) {
         const auto *assignment = pair.second;
         return assignment->user == user;
       });
@@ -215,10 +178,9 @@ ref<Expr> VCHandler::resolvePointers(ExecutionState &state,
   return symbolicValue;
 }
 
-std::unique_ptr<Interpreter>
-collectValues(StringRef runtimeDir, std::unique_ptr<llvm::Module> mainModule,
-              StringRef functionName, StringRef outputDir,
-              VAs &varsAssignments) {
+void ValuesCollector::prepare(StringRef runtimeDir,
+                              std::unique_ptr<llvm::Module> mainModule,
+                              StringRef functionName, StringRef outputDir) {
   LLVMContext &ctx = mainModule->getContext();
   const std::string &moduleTriple = mainModule->getTargetTriple();
   std::string hostTriple = llvm::sys::getDefaultTargetTriple();
@@ -261,20 +223,24 @@ collectValues(StringRef runtimeDir, std::unique_ptr<llvm::Module> mainModule,
 
   Interpreter::InterpreterOptions interpreterOpts;
   interpreterOpts.IndependentFunctions = true;
-  VCHandler handler(outputDir, varsAssignments);
-  std::unique_ptr<Interpreter> interpreter(
-      Interpreter::create(ctx, interpreterOpts, &handler));
+  handler = std::make_unique<VCHandler>(outputDir);
+  interpreter = std::unique_ptr<Interpreter>(
+      Interpreter::create(ctx, interpreterOpts, handler.get()));
   assert(interpreter);
-  handler.setInterpreter(interpreter.get());
+  handler->setInterpreter(interpreter.get());
 
   // `interpreter` now acts as though it owns the modules, though it doesn't
   // make that entirely clear since it takes the `unique_ptr` by reference...
   // Need to keep `interpreter` alive to avoid the modules being deleted.
   auto finalModule = interpreter->setModule(modules, moduleOpts);
-  Function *entryFn = finalModule->getFunction(functionName);
+  entryFn = finalModule->getFunction(functionName);
   if (!entryFn) {
     klee_error("Entry function '%s' not found in module.", functionName.data());
   }
+}
+
+void ValuesCollector::collect(VAs *varsAssignments) {
+  handler->setVarsAssignments(varsAssignments);
 
   // TODO: Externals and globals check...?
   // TODO: Start time...?
@@ -289,14 +255,10 @@ collectValues(StringRef runtimeDir, std::unique_ptr<llvm::Module> mainModule,
 
   uint64_t forks = *theStatisticManager->getStatisticByName("Forks");
 
-  handler.getInfoStream() << "KLEE: done: explored paths = " << 1 + forks
-                          << "\n";
+  handler->getInfoStream() << "KLEE: done: explored paths = " << 1 + forks
+                           << "\n";
 
   // Stats manager holds onto data after execution
   // Reset it to get ready for the next run
   theStatisticManager->reset();
-
-  // The `interpreter` owns the `KModule` and `Expr`s, so we return it here to
-  // keep those bits alive.
-  return interpreter;
 }

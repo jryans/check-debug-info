@@ -886,14 +886,32 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
                    const std::vector<Diagnostic> &diagnostics) {
   bool summary = true;
 
+  outs() << "## Function `" << functionName << "`\n\n";
+
   // KLEE's interpreter currently deletes the modules after running, so we load
   // them here for each run.
   // TODO: Investigate ways to reuse modules
   auto bothModules = loadModules(ctx);
-  auto &beforeModule = bothModules[0];
-  auto &afterModule = bothModules[1];
 
-  outs() << "## Function `" << functionName << "`\n\n";
+  // Must run KLEE's module transformations (via the `prepare` call below)
+  // _before_ any static analysis, as otherwise we may end up saving IR values
+  // that are removed.
+  ValuesCollector beforeCollector;
+  Module *beforeModule;
+  {
+    SmallString<128> outputDir = createOutputDir(beforeFile, functionName);
+    beforeCollector.prepare(runtimeDir, std::move(bothModules[0]), functionName,
+                            outputDir);
+    beforeModule = beforeCollector.getModule();
+  }
+  ValuesCollector afterCollector;
+  Module *afterModule;
+  {
+    SmallString<128> outputDir = createOutputDir(afterFile, functionName);
+    afterCollector.prepare(runtimeDir, std::move(bothModules[1]), functionName,
+                           outputDir);
+    afterModule = afterCollector.getModule();
+  }
 
   const auto beforeDefinitionPtr = beforeModule->getFunction(functionName);
   const auto afterDefinitionPtr = afterModule->getFunction(functionName);
@@ -922,6 +940,9 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   VToAs afterVToAs;
 
   // Borrow KLEE's instruction info analysis for now...
+  // By capturing this info _after_ KLEE's transformation passes (`prepare`
+  // above), we get the nice benefit of asm line numbers which match the
+  // `assembly.ll`.
   InstructionInfoTable beforeInstrInfo(*beforeModule);
   InstructionInfoTable afterInstrInfo(*afterModule);
 
@@ -970,36 +991,23 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   sort(afterFlatVAs);
 
   // Collect symbolic values for before module
-  std::unique_ptr<Interpreter> beforeInterpreter;
-  {
-    KLEE_DEBUG(dbgs() << "#### Before values\n\n");
-    SmallString<128> outputDir = createOutputDir(beforeFile, functionName);
-    beforeInterpreter =
-        collectValues(runtimeDir, std::move(beforeModule),
-                      beforeDefinition.getName(), outputDir, beforeFlatVAs);
-    KLEE_DEBUG(dbgs() << "\n");
-  }
-  bool beforeCompleteExecution = beforeInterpreter->hasCompleteExecution();
+  KLEE_DEBUG(dbgs() << "#### Before values\n\n");
+  beforeCollector.collect(&beforeFlatVAs);
+  KLEE_DEBUG(dbgs() << "\n");
+  bool beforeCompleteExecution = beforeCollector.hasCompleteExecution();
   bool beforeFunctionCovered =
-      beforeInterpreter->isFunctionCovered(beforeDefinition);
+      beforeCollector.isFunctionCovered(beforeDefinition);
   if (!beforeCompleteExecution) {
     outs() << "❌ Unable to execute all before program states\n\n";
     summary = false;
   }
 
   // Collect symbolic values for after module
-  std::unique_ptr<Interpreter> afterInterpreter;
-  {
-    KLEE_DEBUG(dbgs() << "#### After values\n\n");
-    SmallString<128> outputDir = createOutputDir(afterFile, functionName);
-    afterInterpreter =
-        collectValues(runtimeDir, std::move(afterModule),
-                      afterDefinition.getName(), outputDir, afterFlatVAs);
-    KLEE_DEBUG(dbgs() << "\n");
-  }
-  bool afterCompleteExecution = afterInterpreter->hasCompleteExecution();
-  bool afterFunctionCovered =
-      afterInterpreter->isFunctionCovered(afterDefinition);
+  KLEE_DEBUG(dbgs() << "#### After values\n\n");
+  afterCollector.collect(&afterFlatVAs);
+  KLEE_DEBUG(dbgs() << "\n");
+  bool afterCompleteExecution = afterCollector.hasCompleteExecution();
+  bool afterFunctionCovered = afterCollector.isFunctionCovered(afterDefinition);
   if (!afterCompleteExecution) {
     outs() << "❌ Unable to execute all after program states\n\n";
     summary = false;

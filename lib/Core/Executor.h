@@ -545,6 +545,10 @@ public:
   llvm::Module *setModule(std::vector<std::unique_ptr<llvm::Module>> &modules,
                           const ModuleOptions &opts) override;
 
+  llvm::Module *getModule() const override {
+    return kmodule->module.get();
+  }
+
   void useSeeds(const std::vector<struct KTest *> *seeds) override {
     usingSeeds = seeds;
   }
