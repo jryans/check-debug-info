@@ -97,6 +97,7 @@ namespace klee {
 extern cl::opt<int> MaxForks;
 extern cl::opt<bool> DebugExecutionTrace;
 extern cl::opt<bool> OnlyUncoveredBranchTargets;
+extern cl::opt<bool> PCAllConstWidths;
 } // namespace klee
 
 bool checkStaticRemovability(const Assignment &assignment) {
@@ -1167,6 +1168,7 @@ int main(int argc, char **argv) {
   MaxForks.setInitialValue(4);
   DebugExecutionTrace.setInitialValue(true);
   OnlyUncoveredBranchTargets.setInitialValue(true);
+  PCAllConstWidths.setInitialValue(true);
 
   cl::ParseCommandLineOptions(argc, argv, "Debug info consistency check\n");
 

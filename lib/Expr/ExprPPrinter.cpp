@@ -21,7 +21,7 @@
 
 using namespace klee;
 
-namespace {
+namespace klee {
 
 llvm::cl::opt<bool> PCWidthAsArg(
     "pc-width-as-arg", llvm::cl::init(true),
