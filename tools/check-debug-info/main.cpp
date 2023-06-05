@@ -1218,7 +1218,7 @@ int main(int argc, char **argv) {
   const auto afterDefinitionCount = count_if(afterFunctions, functionFilter);
 
   if (!beforeDefinitionCount || !afterDefinitionCount) {
-    klee_error("Both programs must have at least 1 function");
+    klee_error("Both programs must have at least 1 non-`main` function");
   }
 
   {
