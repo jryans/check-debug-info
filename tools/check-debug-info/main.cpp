@@ -401,10 +401,6 @@ bool gatherAssignments(const StringRef moduleKind,
   } else if (const auto *valueIntrinsic =
                  dyn_cast<DbgValueInst>(&instruction)) {
     // Find related instructions via the `dbg.value`'s location ops
-    KLEE_DEBUG(dbgs() << "@dbg.value mapping for " << variable << ", ");
-    KLEE_DEBUG(dbgs() << "asm ln "
-                      << instrInfo.getInfo(*valueIntrinsic).assemblyLine
-                      << "\n");
     const Values producers(valueIntrinsic->getValues());
     summary &= addAssignment(moduleKind, instrInfo, valueIntrinsic, variable,
                              "Value produced for", valueIntrinsic,
