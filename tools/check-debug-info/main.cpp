@@ -134,6 +134,7 @@ bool checkStaticRemovability(const Assignment &assignment) {
     }
   } else if (const auto *valueIntrinsic =
                  dyn_cast<DbgValueInst>(varIntrinsic)) {
+    // TODO: Treat `dbg.value` with `DW_OP_deref` as address-like
     bool hasNonDebugUsers = false;
     for (const auto *value : valueIntrinsic->getValues()) {
       for (const auto *user : value->users()) {
@@ -393,9 +394,10 @@ bool gatherAssignments(const StringRef moduleKind,
         if (storeInstruction->getPointerOperand() != address)
           continue;
         const Values producers(1, storeInstruction->getValueOperand());
-        summary &= addAssignment(moduleKind, instrInfo, declareIntrinsic,
-                                 variable, "Store to", storeInstruction,
-                                 std::move(producers), varToAs);
+        summary &=
+            addAssignment(moduleKind, instrInfo, declareIntrinsic, variable,
+                          "Store to declared address of", storeInstruction,
+                          std::move(producers), varToAs);
       }
     }
   } else if (const auto *valueIntrinsic =
@@ -405,6 +407,38 @@ bool gatherAssignments(const StringRef moduleKind,
     summary &= addAssignment(moduleKind, instrInfo, valueIntrinsic, variable,
                              "Value produced for", valueIntrinsic,
                              std::move(producers), varToAs);
+
+    const auto *expr = valueIntrinsic->getExpression();
+    // Check for `DW_OP_deref` address-like value expressions
+    if (expr->startsWithDeref()) {
+      // TODO: Support more complex expressions with deref
+      assert(expr->getNumElements() == 1 &&
+             "Deref expression with other operations");
+      // Treat address input to `dbg.value` with `DW_OP_deref` in the same way
+      // as `dbg.declare`, but also capture the current value as an assignment
+      assert(valueIntrinsic->getNumVariableLocationOps() == 1 &&
+             "dbg.value intrinsic as address with multiple inputs");
+      const Value *address = valueIntrinsic->getValue();
+      if (!address)
+        return summary;
+      // Current value stored at the address will also be captured as an
+      // assignment by the common `dbg.value` path above
+
+      // Look for any stores to the address as with `dbg.declare`
+      for (const auto *addressUse : address->users()) {
+        if (const auto *storeInstruction = dyn_cast<StoreInst>(addressUse)) {
+          // Ensure this is an address operand user
+          // We don't want to track stores of the address in IR-level pointers
+          if (storeInstruction->getPointerOperand() != address)
+            continue;
+          const Values producers(1, storeInstruction->getValueOperand());
+          summary &=
+              addAssignment(moduleKind, instrInfo, valueIntrinsic, variable,
+                            "Store to deref'd address of", storeInstruction,
+                            std::move(producers), varToAs);
+        }
+      }
+    }
   } else {
     llvm_unreachable("Unexpected dbg intrinsic");
   }

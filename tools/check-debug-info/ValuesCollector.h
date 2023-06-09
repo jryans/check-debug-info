@@ -25,6 +25,34 @@ class StringRef;
 class Value;
 } // namespace llvm
 
+class PointerExpr : public klee::ConstantExpr {
+private:
+  klee::ref<klee::Expr> derefExpr;
+
+  PointerExpr(const llvm::APInt &pointer, klee::ref<klee::Expr> derefExpr)
+      : klee::ConstantExpr(pointer), derefExpr(derefExpr) {}
+
+public:
+  klee::ref<klee::Expr> deref() const override { return derefExpr; }
+
+  static klee::ref<PointerExpr> alloc(const llvm::APInt &pointer,
+                                      klee::ref<klee::Expr> derefExpr) {
+    klee::ref<PointerExpr> r(new PointerExpr(pointer, derefExpr));
+    r->computeHash();
+    return r;
+  }
+
+  static klee::ref<PointerExpr> alloc(uint64_t pointer,
+                                      klee::ref<klee::Expr> derefExpr) {
+    return alloc(llvm::APInt(klee::Expr::Int64, pointer), derefExpr);
+  }
+
+  static klee::ref<PointerExpr> create(uint64_t pointer,
+                                       klee::ref<klee::Expr> derefExpr) {
+    return alloc(pointer, derefExpr);
+  }
+};
+
 class VCHandler : public klee::InterpreterHandler {
 private:
   llvm::StringRef outputDir;
@@ -59,9 +87,10 @@ public:
                        const char *suffix) override {}
 
 private:
-  klee::ref<klee::Expr> resolvePointers(klee::ExecutionState &state,
-                                        const llvm::Value *producer,
-                                        klee::ref<klee::Expr> symbolicValue);
+  klee::ref<klee::Expr>
+  resolvePointers(klee::ExecutionState &state, const llvm::Value *producer,
+                  klee::ref<klee::Expr> symbolicValue,
+                  const llvm::DbgVariableIntrinsic *varIntrinsic);
 };
 
 class ValuesCollector {

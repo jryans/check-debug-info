@@ -132,7 +132,8 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &event,
              "Producers collected out of order");
       KLEE_DEBUG(dbgs() << "Collected value for `" << var.name << "`\n");
       if (!resolved) {
-        symbolicValue = resolvePointers(state, producer, symbolicValue);
+        symbolicValue = resolvePointers(state, producer, symbolicValue,
+                                        assignment->varIntrinsic);
         resolved = true;
       }
       assignment->producedSymbolicValues.push_back(symbolicValue);
@@ -149,7 +150,8 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &event,
 
 ref<Expr> VCHandler::resolvePointers(ExecutionState &state,
                                      const Value *producer,
-                                     ref<Expr> symbolicValue) {
+                                     ref<Expr> symbolicValue,
+                                     const DbgVariableIntrinsic *varIntrinsic) {
   if (!producer->getType()->isPointerTy())
     return symbolicValue;
 
@@ -167,9 +169,18 @@ ref<Expr> VCHandler::resolvePointers(ExecutionState &state,
     ref<Expr> offset = memory->getOffsetExpr(address);
     KLEE_DEBUG(dbgs() << "  Concrete pointer resolves to " << memory->name
                       << ", offset " << offset << "\n");
+
+    // Stash this info in a "deref"-able pointer expr
+    // TODO: Maybe do this lazily and take width as input...?
+    const auto *objectState = op.second;
+    const auto varWidth =
+        varIntrinsic->getVariable()->getSizeInBits().getValue();
+    ref<Expr> derefExpr = objectState->read(offset, varWidth);
+    KLEE_DEBUG(dbgs() << "  Created deref expr " << derefExpr << "\n");
+
     // TODO: Produce human-readable expressions instead of hash codes
     auto hash = hash_combine(memory->name, offset->computeHash());
-    ref<Expr> hashValue = klee::ConstantExpr::create(hash, Expr::Int64);
+    ref<Expr> hashValue = PointerExpr::create(hash, derefExpr);
     KLEE_DEBUG(dbgs() << "  Replaced concrete pointer with hash " << hashValue
                       << "\n");
     return hashValue;

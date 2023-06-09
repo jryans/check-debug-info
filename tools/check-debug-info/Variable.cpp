@@ -1,4 +1,5 @@
 #include "Variable.h"
+#include "ValuesCollector.h"
 
 #include "klee/ADT/Ref.h"
 #include "klee/Expr/Expr.h"
@@ -85,7 +86,8 @@ ref<Expr> Assignment::evaluate() {
     return evaluatedSymbolicValue;
 
   if (varIntrinsic->isUndef()) {
-    KLEE_DEBUG(dbgs() << "Variable intrinsic with undef input" << "\n");
+    KLEE_DEBUG(dbgs() << "Variable intrinsic with undef input"
+                      << "\n");
     return nullptr;
   }
 
@@ -98,6 +100,17 @@ ref<Expr> Assignment::evaluate() {
 
   const auto *variable = varIntrinsic->getVariable();
   ExprBuilder *builder = createDefaultExprBuilder();
+
+  // User is something other than `dbg.value` intrinsic
+  // These are store-like cases where there's no value expression to apply
+  if (!isa<DbgValueInst>(user)) {
+    assert(producers.size() == 1 && "Store-like user with multiple producers");
+    assert(producedSymbolicValues.size() == 1 &&
+           "Symbolic value missing for producer");
+    evaluatedSymbolicValue = producedSymbolicValues[0];
+    truncateToVariable(builder, variable, evaluatedSymbolicValue);
+    return evaluatedSymbolicValue;
+  }
 
   // Empty expression
   const auto *expr = varIntrinsic->getExpression();
@@ -130,11 +143,27 @@ ref<Expr> Assignment::evaluate() {
 
   // Only value expressions are supported, so all non-empty expressions should
   // be terminated with the stack value operation.
-  bool isValueExpr = false;
+  // The deref operation is also accepted and treated as a marker to capture the
+  // current value stored at an address.
+  bool isValidExpr = false;
 
   for (const auto &exprOp : expr->expr_ops()) {
     const auto &opcode = exprOp.getOp();
+
+    // Reset validity for each new operation
+    isValidExpr = false;
+
     switch (opcode) {
+    // 0x06 / 006
+    // Pops the top stack entry and treats it as an address. The value retrieved
+    // from that address is pushed.
+    case dwarf::DW_OP_deref: {
+      auto arg = stack.back();
+      const auto result = arg->deref();
+      KLEE_DEBUG(dbgs() << "deref: " << result << "\n");
+      stack.back() = std::move(result);
+      isValidExpr = true;
+    } break;
     // 0x10 / 016
     // Provides an unsigned integer constant.
     case dwarf::DW_OP_constu:
@@ -238,8 +267,8 @@ ref<Expr> Assignment::evaluate() {
     case dwarf::DW_OP_plus_uconst: {
       auto arg1 = stack.back();
       // Assume constants have the width of the source variable
-      auto arg2 = builder->Constant(
-          exprOp.getArg(0), variable->getSizeInBits().getValue());
+      auto arg2 = builder->Constant(exprOp.getArg(0),
+                                    variable->getSizeInBits().getValue());
       autoTruncate(builder, arg1, arg2);
       const auto result = builder->Add(arg1, arg2);
       KLEE_DEBUG(dbgs() << "plus_uconst: " << result << "\n");
@@ -301,7 +330,7 @@ ref<Expr> Assignment::evaluate() {
     // Specifies that the object does not exist in memory but its value is
     // nonetheless known and is at the top of the stack.
     case dwarf::DW_OP_stack_value: {
-      isValueExpr = true;
+      isValidExpr = true;
     } break;
     // 0x1001 / 4097
     // Converts the bit width of the top value on the stack. Takes additional
@@ -355,7 +384,7 @@ ref<Expr> Assignment::evaluate() {
   KLEE_DEBUG(dbgs() << "Result: " << evaluatedSymbolicValue << "\n");
 
   assert(stack.size() == 1 && "Expression stack has unexpected size");
-  assert(isValueExpr && "Unexpected non-value expression");
+  assert(isValidExpr && "Invalid or unexpected expression");
 
   delete builder;
 

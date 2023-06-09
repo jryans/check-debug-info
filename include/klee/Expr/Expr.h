@@ -17,6 +17,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <sstream>
@@ -251,6 +252,10 @@ public:
 
   /// isFalse - Is this the false expression.
   bool isFalse() const;
+
+  virtual klee::ref<klee::Expr> deref() const {
+    llvm_unreachable("Deref not supported for this expr");
+  }
 
   /* Static utility methods */
 
@@ -997,7 +1002,7 @@ public:
   static const Kind kind = Constant;
   static const unsigned numKids = 0;
 
-private:
+protected:
   llvm::APInt value;
 
   ConstantExpr(const llvm::APInt &v) : value(v) {}
