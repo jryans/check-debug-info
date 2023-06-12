@@ -884,7 +884,12 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
     }
 
     bool result = checkEquivalence(variable, currentAssn, otherAssn);
-    if (!result) {
+    if (result) {
+      KLEE_DEBUG(dbgs() << "✅ " << otherKind << " " << variable << " assn "
+                        << otherAssn << " symbolic value matches "
+                        << currentKind.lower() << " assn " << currentAssn
+                        << "\n");
+    } else {
       outs() << "❌ " << otherKind << " " << variable << " assn " << otherAssn
              << " symbolic value doesn't match " << currentKind.lower()
              << " assn " << currentAssn << "\n";
