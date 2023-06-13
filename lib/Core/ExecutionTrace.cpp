@@ -21,6 +21,12 @@ SourceInfo::SourceInfo(std::string file, unsigned int line, unsigned int column)
   if (lastSourceFile == file) {
     if (lastSourceFileLines.empty())
       return;
+    if (line > lastSourceFileLines.size()) {
+      klee_warning(
+          "Source file `%s` expected to have at least %u lines, found %zu",
+          file.c_str(), line, lastSourceFileLines.size());
+      return;
+    }
     text = lastSourceFileLines[line - 1];
     return;
   }
@@ -43,6 +49,12 @@ SourceInfo::SourceInfo(std::string file, unsigned int line, unsigned int column)
     const auto split = str.split('\n');
     lastSourceFileLines.push_back(split.first);
     str = split.second;
+  }
+  if (line > lastSourceFileLines.size()) {
+    klee_warning(
+        "Source file `%s` expected to have at least %u lines, found %zu",
+        file.c_str(), line, lastSourceFileLines.size());
+    return;
   }
   text = lastSourceFileLines[line - 1];
 }
