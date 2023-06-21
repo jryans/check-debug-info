@@ -4784,7 +4784,10 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     // Build the pointee value
     // TODO: Add the nullptr case as well...?
     // TODO: Add the array case as well...?
-    unsigned pointeeCount = 1;
+    // Default allocation leaves room for functions with pointer math
+    // (We aren't trying to detect OOB memory safety violations like traditional
+    // KLEE usage, so really this could be any number.)
+    unsigned pointeeCount = 2;
     // Allocate more room for byte arrays
     if (pointeeType == Type::getInt8Ty(pointeeType->getContext()))
       pointeeCount = 32;
