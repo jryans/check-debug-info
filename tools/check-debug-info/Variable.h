@@ -5,13 +5,12 @@
 #include "klee/Expr/Expr.h"
 #include "klee/Module/Printing.h"
 
-#include "llvm/ADT/IntervalMap.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <climits>
 #include <map>
 #include <tuple>
 #include <utility>
@@ -38,6 +37,9 @@ struct Variable {
 
   // Imported from optional diagnostics
   bool unused = false;
+
+  // Used to mark order we first encounter each assignment for a variable
+  unsigned int nextEncounter = 0;
 
   bool operator==(const Variable &other) const {
     return std::tie(name, declLine) == std::tie(other.name, other.declLine);
@@ -96,10 +98,8 @@ struct Assignment {
   // Source line where the assignment is known to already be live
   // Typically this comes from the instruction after assignment
   unsigned int liveLine;
-  // Generation used to distinguish assignments with the same source coordinates
-  // (e.g. initialisation and advancement on the same line)
-  // Computed via the dominator tree (earlier generations dominate)
-  unsigned int generation;
+  // Order in which the assignment was first encountered during execution
+  llvm::Optional<unsigned int> encounter;
 
   // Everything below is not checked during comparison
 
@@ -126,15 +126,13 @@ struct Assignment {
   bool removable = false;
 
   bool operator==(const Assignment &other) const {
-    return std::tie(liveLine, generation) ==
-           std::tie(other.liveLine, other.generation);
+    return encounter == other.encounter;
   }
 
   bool operator!=(const Assignment &other) const { return !(*this == other); }
 
   bool operator<(const Assignment &other) const {
-    return std::tie(liveLine, generation) <
-           std::tie(other.liveLine, other.generation);
+    return encounter < other.encounter;
   }
 
   bool operator<=(const Assignment &other) const { return !(other < *this); }
@@ -152,7 +150,7 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
   out << ", prod ln " << assignment.producedLine;
   out << "." << assignment.producedColumn;
   out << ", live ln " << assignment.liveLine;
-  out << ", gen " << assignment.generation;
+  out << ", enc " << assignment.encounter;
   return out;
 }
 
@@ -161,48 +159,8 @@ using VariablesSet = llvm::SmallSet<Variable, 8>;
 using Assignments = llvm::SmallVector<Assignment>;
 using VToAs = std::map<Variable, Assignments>;
 
-struct Location {
-  unsigned int line;
-  // Generation used to distinguish assignments with the same source coordinates
-  // (e.g. initialisation and advancement on the same line)
-  // Computed via the dominator tree (earlier generations dominate)
-  unsigned int generation;
-
-  bool operator==(const Location &other) const {
-    return std::tie(line, generation) == std::tie(other.line, other.generation);
-  }
-
-  bool operator!=(const Location &other) const { return !(*this == other); }
-
-  bool operator<(const Location &other) const {
-    return std::tie(line, generation) < std::tie(other.line, other.generation);
-  }
-
-  bool operator>(const Location &other) const { return other < *this; }
-
-  bool operator<=(const Location &other) const { return !(other < *this); }
-
-  bool operator>=(const Location &other) const { return !(*this < other); }
-};
-
-inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
-                                     const Location &location) {
-  out << "live ln ";
-  if (location.line == UINT_MAX)
-    out << "∞";
-  else
-    out << location.line;
-  out << ", gen ";
-  if (location.generation == UINT_MAX)
-    out << "∞";
-  else
-    out << location.generation;
-  return out;
-}
-
-using RangeToA = llvm::IntervalMap<Location, Assignment *, 8,
-                                   llvm::IntervalMapHalfOpenInfo<Location>>;
-using VToRangeToA = std::map<Variable, RangeToA>;
+using EncounterToA = std::map<unsigned int, Assignment *>;
+using VToEncounterToA = std::map<Variable, EncounterToA>;
 
 using VA = std::pair<Variable, Assignment *>;
 using VAs = llvm::SmallVector<VA>;

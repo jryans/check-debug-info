@@ -20,7 +20,6 @@
 #include "klee/Support/PrintVersion.h"
 #include "klee/Support/RuntimeHandling.h"
 
-#include "llvm/ADT/IntervalMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/SmallSet.h"
@@ -54,10 +53,10 @@
 
 #include <algorithm>
 #include <cassert>
-#include <climits>
 #include <cstdint>
 #include <cstdlib>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -327,6 +326,7 @@ bool addAssignment(const StringRef moduleKind,
   assignment.producers = std::move(producers);
   assignment.user = user;
   assignment.asmLine = instrInfo.getInfo(*user).assemblyLine;
+  // JRS: Why do we only run this on the before module...?
   if (moduleKind == "Before")
     assignment.removable = checkStaticRemovability(assignment);
 
@@ -669,50 +669,17 @@ bool filterRedundantAssignments(const StringRef kind,
   return summary;
 }
 
-void computeAssignmentGeneration(Function &function,
-                                 const VariablesSet &variables,
-                                 VToAs &varToAs) {
-  DominatorTree domTree(function);
-  for (const auto &variable : variables) {
-    auto &assignments = varToAs[variable];
-    if (assignments.empty())
-      continue;
-    sort(assignments, [&](const Assignment &left, const Assignment &right) {
-      // Dominance is checked **after** source coordinates
-      // Dominance is currently used mainly as a tie-break of sorts for e.g.
-      // loop headers where there are several parts on the same source line but
-      // with very different semantic order
-      // TODO: Try checking instructions before and after to detect loop
-      // iteration case (instead of dominance)
-      // TODO: Leverage IR-level variable scope info to process blocks and loops
-      // like source language
-      // TODO: Consider special casing loop iteration expression via some kind
-      // of fake / ghost location
-      const int leftDom = domTree.dominates(left.user, right.user) ? -1 : 1;
-      const int rightDom = 0;
-      return std::tie(left.liveLine, leftDom) <
-             std::tie(right.liveLine, rightDom);
-    });
-    KLEE_DEBUG(dbgs() << "Computing generations: " << variable << "\n");
-    // Generation is currently incremented for each assignment after sorting
-    // Consider only incrementing when source coordinates match
-    for (size_t i = 0, e = assignments.size(); i < e; ++i) {
-      assignments[i].generation = i;
-      KLEE_DEBUG(dbgs() << "  " << assignments[i] << "\n");
-    }
-  }
-}
-
-bool buildLiveRangeToAssignmentMap(const VariablesSet &variables,
-                                   VToAs &varToAs, VToRangeToA &varToRangeToA,
-                                   RangeToA::Allocator &rangeMapAllocator) {
+bool buildEncounterToAssignmentMap(const VariablesSet &variables,
+                                   VToAs &varToAs,
+                                   VToEncounterToA &varToEncToA) {
   bool summary = true;
 
   for (const auto &variable : variables) {
     auto &assignments = varToAs[variable];
     if (assignments.empty())
       continue;
-    KLEE_DEBUG(dbgs() << "Building live ranges: " << variable << "\n");
+    KLEE_DEBUG(dbgs() << "Collating encountered assignments: " << variable
+                      << "\n");
     for (size_t i = 0, e = assignments.size(); i < e; ++i) {
       auto &assignment = assignments[i];
 
@@ -722,43 +689,26 @@ bool buildLiveRangeToAssignmentMap(const VariablesSet &variables,
       if (assignment.varIntrinsic->isUndef())
         continue;
 
-      // Now that the live line is at least producer line + 1, it provides a
-      // more stable bounds for live ranges
-      // TODO: Perhaps use producer for start and live for end, allowing ranges
-      // to overlap...?
-      unsigned int startLine = assignment.liveLine;
-      unsigned int startGeneration = assignment.generation;
-      unsigned int endLine, endGeneration;
-      if ((i + 1) < e) {
-        endLine = assignments[i + 1].liveLine;
-        endGeneration = assignments[i + 1].generation;
-      } else {
-        endLine = UINT_MAX;
-        endGeneration = UINT_MAX;
-      }
-
-      Location start = {startLine, startGeneration};
-      Location end = {endLine, endGeneration};
-
-      KLEE_DEBUG(dbgs() << "  " << assignment << "\n    " << start << " →\n    "
-                        << end << "\n");
-
-      auto &varRange =
-          varToRangeToA
-              .emplace(std::make_pair(variable, RangeToA(rangeMapAllocator)))
-              .first->second;
-      if (start >= end) {
-        outs() << "❌ Invalid range for " << variable << " from " << start
-               << " to " << end << "\n";
+      // Look for any assignments that were not encountered
+      if (!assignment.encounter) {
+        outs() << "❌ Assignment " << assignment << " for " << variable
+               << " was not encountered during execution\n";
         summary = false;
         continue;
       }
-      if (varRange.overlaps(start, end)) {
-        outs() << "🔔 Multiple assignments to variable " << variable
-               << " in source range from " << start << " to " << end << "\n";
+
+      KLEE_DEBUG(dbgs() << "  " << assignment << "\n");
+
+      auto &varEncounters =
+          varToEncToA.emplace(std::make_pair(variable, EncounterToA()))
+              .first->second;
+      if (varEncounters.count(*assignment.encounter)) {
+        outs() << "❌ Multiple assignments to variable " << variable
+               << " with same encounter order\n";
+        summary = false;
         continue;
       }
-      varRange.insert(start, end, &assignment);
+      varEncounters[*assignment.encounter] = &assignment;
     }
   }
 
@@ -808,7 +758,7 @@ SmallVector<std::unique_ptr<Module>, 2> loadModules(LLVMContext &ctx) {
 bool checkValues(const StringRef currentKind, const VAs &currentVAs,
                  const VToAs &currentVToAs, const bool currentCompleteExecution,
                  const bool currentFunctionCovered, const StringRef otherKind,
-                 VToRangeToA &otherVToRangeToA,
+                 const VToEncounterToA &otherVToEncToA,
                  const bool otherCompleteExecution,
                  const bool otherFunctionCovered) {
   size_t equal = 0, notEqual = 0, unused = 0, unreachable = 0, removable = 0;
@@ -816,8 +766,8 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
   for (size_t i = 0, e = currentVAs.size(); i < e; ++i) {
     auto &current = currentVAs[i];
     const Variable &variable = current.first;
-    const auto &otherRangeLookup = otherVToRangeToA.find(variable);
-    if (otherRangeLookup == otherVToRangeToA.end()) {
+    const auto &otherEncToALookup = otherVToEncToA.find(variable);
+    if (otherEncToALookup == otherVToEncToA.end()) {
       // Check if all current assignments are removable
       bool currentVariableRemovable = true;
       const auto &currentAssnsLookup = currentVToAs.find(variable);
@@ -830,15 +780,15 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
         }
       }
       if (currentVariableRemovable) {
-        outs() << "🔔 " << otherKind << " live ranges for (removable) "
+        outs() << "🔔 " << otherKind << " encountered assns for (removable) "
                << variable << " not found\n";
         ++removable;
       } else if (variable.unused) {
-        outs() << "🔔 " << otherKind << " live ranges for (unused) " << variable
-               << " not found\n";
+        outs() << "🔔 " << otherKind << " encountered assns for (unused) "
+               << variable << " not found\n";
         ++unused;
       } else {
-        outs() << "❌ " << otherKind << " live range for " << variable
+        outs() << "❌ " << otherKind << " encountered assns for " << variable
                << " not found\n";
         ++notEqual;
       }
@@ -846,23 +796,22 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
       continue;
     }
     Assignment &currentAssn = *current.second;
-    auto &otherRange = otherVToRangeToA.at(variable);
-    auto otherAssnLookup =
-        otherRange.find({currentAssn.liveLine, currentAssn.generation});
-    if (otherAssnLookup == otherRange.end()) {
+    auto &otherEncToA = otherVToEncToA.at(variable);
+    auto otherAssnLookup = otherEncToA.find(*currentAssn.encounter);
+    if (otherAssnLookup == otherEncToA.end()) {
       if (currentAssn.removable) {
-        outs() << "🔔 " << otherKind << " (removable) live range for "
+        outs() << "🔔 " << otherKind << " (removable) encountered assn for "
                << variable << " at " << currentAssn << " not found\n";
         ++removable;
       } else {
-        outs() << "❌ " << otherKind << " live range for " << variable << " at "
-               << currentAssn << " not found\n";
+        outs() << "❌ " << otherKind << " encountered assn for " << variable
+               << " at " << currentAssn << " not found\n";
         ++notEqual;
       }
       KLEE_DEBUG(dbgs() << "\n");
       continue;
     }
-    Assignment &otherAssn = **otherAssnLookup;
+    Assignment &otherAssn = *otherAssnLookup->second;
     // This does _not_ check symbolic values
     if (otherAssn != currentAssn) {
       outs() << "🔔 " << otherKind << " " << variable << " assn " << otherAssn
@@ -1009,13 +958,11 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   summary &= gatherAssignments("Before", beforeDefinition, beforeInstrInfo,
                                diagnostics, beforeVariables, beforeVToAs);
-  computeAssignmentGeneration(beforeDefinition, beforeVariables, beforeVToAs);
   if (!beforeVariables.empty())
     KLEE_DEBUG(dbgs() << "\n");
 
   summary &= gatherAssignments("After", afterDefinition, afterInstrInfo,
                                diagnostics, afterVariables, afterVToAs);
-  computeAssignmentGeneration(afterDefinition, afterVariables, afterVToAs);
   if (!afterVariables.empty())
     KLEE_DEBUG(dbgs() << "\n");
 
@@ -1032,7 +979,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   outs() << "### Symbolic values\n\n";
 
-  // TODO: Remove this and hand `ValuesCollector` the live range map instead...?
+  // TODO: Remove this and hand `ValuesCollector` the assns map instead...?
   VAs beforeFlatVAs;
   for (auto &varAssignments : beforeVToAs) {
     const auto &variable = varAssignments.first;
@@ -1105,94 +1052,16 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   }
   sort(afterFlatVAs);
 
-  RangeToA::Allocator rangeMapAllocator;
-  VToRangeToA beforeVToRangeToA;
-  VToRangeToA afterVToRangeToA;
+  VToEncounterToA beforeVToEncToA;
+  VToEncounterToA afterVToEncToA;
 
-  computeAssignmentGeneration(beforeDefinition, beforeVariables, beforeVToAs);
-  summary &= buildLiveRangeToAssignmentMap(
-      beforeVariables, beforeVToAs, beforeVToRangeToA, rangeMapAllocator);
+  summary &= buildEncounterToAssignmentMap(beforeVariables, beforeVToAs,
+                                           beforeVToEncToA);
   KLEE_DEBUG(dbgs() << "\n");
 
-  computeAssignmentGeneration(afterDefinition, afterVariables, afterVToAs);
-  summary &= buildLiveRangeToAssignmentMap(afterVariables, afterVToAs,
-                                           afterVToRangeToA, rangeMapAllocator);
+  summary &=
+      buildEncounterToAssignmentMap(afterVariables, afterVToAs, afterVToEncToA);
   KLEE_DEBUG(dbgs() << "\n");
-
-  // Verify all before live ranges are covered by after ranges
-  {
-    size_t covered = 0, uncovered = 0, undefined = 0, unused = 0, removable = 0;
-
-    for (const auto &variable : beforeVariables) {
-      const auto &beforeRangeLookup = beforeVToRangeToA.find(variable);
-      const auto &afterRangeLookup = afterVToRangeToA.find(variable);
-
-      if (beforeRangeLookup == beforeVToRangeToA.end()) {
-        outs() << "🔔 Before live ranges for " << variable << " not found "
-               << "(variable likely undefined)\n";
-        ++undefined;
-        continue;
-      }
-      if (afterRangeLookup == afterVToRangeToA.end()) {
-        // Check if all before assignments are removable
-        bool beforeVariableRemovable = true;
-        const auto &beforeAssnsLookup = beforeVToAs.find(variable);
-        if (beforeAssnsLookup != beforeVToAs.end()) {
-          for (const auto &assn : beforeAssnsLookup->second) {
-            if (!assn.removable) {
-              beforeVariableRemovable = false;
-              break;
-            }
-          }
-        }
-        if (beforeVariableRemovable) {
-          outs() << "🔔 After live ranges for (removable) " << variable
-                 << " not found\n";
-          ++removable;
-        } else if (variable.unused) {
-          outs() << "🔔 After live ranges for (unused) " << variable
-                 << " not found\n";
-          ++unused;
-        } else {
-          outs() << "❌ After live ranges for " << variable << " not found\n";
-          ++uncovered;
-        }
-        continue;
-      }
-
-      const auto &beforeRange = beforeRangeLookup->second;
-      const auto &afterRange = afterRangeLookup->second;
-
-      if (beforeRange.stop().line != UINT_MAX)
-        outs() << "🔔 Before live range for " << variable
-               << " terminates early\n";
-      if (afterRange.stop().line != UINT_MAX)
-        outs() << "🔔 After live range for " << variable
-               << " terminates early\n";
-      // TODO: Does this still make sense with generations...?
-      // After range may start earlier if e.g. a common value is reused from
-      // elsewhere in the program
-      if (beforeRange.start() < afterRange.start()) {
-        outs() << "❌ Live ranges for " << variable
-               << " not fully covered: " << beforeRange.start() << " < "
-               << afterRange.start() << "\n";
-        ++uncovered;
-        continue;
-      }
-
-      ++covered;
-    }
-
-    bool match = !uncovered;
-    summary &= match;
-
-    outs() << (match ? "✅ " : "❌ ") << "Before live range coverage\n";
-    outs() << "  Covered:   " << covered << "\n";
-    outs() << "  Uncovered: " << uncovered << "\n";
-    outs() << "  Undefined: " << undefined << "\n";
-    outs() << "  Unused:    " << unused << "\n";
-    outs() << "  Removable: " << removable << "\n";
-  }
 
   outs() << "\n"; // ### Assignments
 
@@ -1200,7 +1069,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   outs() << "#### Check before against after\n\n";
   summary &=
       checkValues("Before", beforeFlatVAs, beforeVToAs, beforeCompleteExecution,
-                  beforeFunctionCovered, "After", afterVToRangeToA,
+                  beforeFunctionCovered, "After", afterVToEncToA,
                   afterCompleteExecution, afterFunctionCovered);
 
   outs() << "\n";
@@ -1210,7 +1079,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   outs() << "#### Check after against before\n\n";
   summary &=
       checkValues("After", afterFlatVAs, afterVToAs, afterCompleteExecution,
-                  afterFunctionCovered, "Before", beforeVToRangeToA,
+                  afterFunctionCovered, "Before", beforeVToEncToA,
                   beforeCompleteExecution, beforeFunctionCovered);
 
   outs() << "\n"; // ### Symbolic values
