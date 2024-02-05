@@ -125,9 +125,9 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &event,
     if (assignment->producedSymbolicValues.size() ==
         assignment->producers.size())
       continue;
-    assert(!assignment->encounter && "Assignment already encountered");
     // Record encounter order for this variable
-    assignment->encounter = var.nextEncounter++;
+    if (!assignment->encounter)
+      assignment->encounter = var.nextEncounter++;
     for (size_t i = 0, e = assignment->producers.size(); i < e; ++i) {
       if (assignment->producers[i] != producer)
         continue;
