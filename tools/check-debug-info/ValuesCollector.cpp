@@ -31,8 +31,10 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <cstddef>
+#include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace klee;
@@ -118,7 +120,7 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &event,
   bool resolved = false;
 
   for (VA &pair : matchingAssignments) {
-    auto &var = pair.first;
+    const auto &var = pair.first;
     auto *assignment = pair.second;
     // TODO: Track multiple values for an assignment when visiting a block
     // multiple times (if we end up needing that)
@@ -126,8 +128,11 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &event,
         assignment->producers.size())
       continue;
     // Record encounter order for this variable
-    if (!assignment->encounter)
-      assignment->encounter = var.nextEncounter++;
+    if (!assignment->encounter) {
+      auto &nextEncounter =
+          nextEncounters.emplace(std::make_pair(var, 0)).first->second;
+      assignment->encounter = nextEncounter++;
+    }
     for (size_t i = 0, e = assignment->producers.size(); i < e; ++i) {
       if (assignment->producers[i] != producer)
         continue;

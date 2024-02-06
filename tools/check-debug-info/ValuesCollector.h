@@ -9,6 +9,7 @@
 
 #include "llvm/Support/raw_ostream.h"
 
+#include <map>
 #include <memory>
 #include <string>
 
@@ -59,6 +60,7 @@ private:
   std::unique_ptr<llvm::raw_fd_ostream> infoStream;
   klee::Interpreter *interpreter;
   VAs *varsAssignments;
+  std::map<Variable, unsigned int> nextEncounters;
 
 public:
   VCHandler(llvm::StringRef outputDir)

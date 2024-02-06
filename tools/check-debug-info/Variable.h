@@ -38,9 +38,6 @@ struct Variable {
   // Imported from optional diagnostics
   bool unused = false;
 
-  // Used to mark order we first encounter each assignment for a variable
-  unsigned int nextEncounter = 0;
-
   bool operator==(const Variable &other) const {
     return std::tie(name, declLine) == std::tie(other.name, other.declLine);
   }
