@@ -1033,6 +1033,13 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
       filterRedundantAssignments("After", afterVariables, afterVToAs,
                                  afterCompleteExecution, afterFunctionCovered);
 
+  // Sort assignments by encounter order
+  // Not required, but it does ease debugging
+  for (auto &varAssignments : beforeVToAs)
+    sort(varAssignments.second);
+  for (auto &varAssignments : afterVToAs)
+    sort(varAssignments.second);
+
   // May have removed assignments, rebuild flat VAs
   // TODO: Rethink use of data structures instead...
   beforeFlatVAs.clear();
