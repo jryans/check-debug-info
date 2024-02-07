@@ -493,8 +493,10 @@ bool gatherAssignments(const StringRef moduleKind, const Function &function,
 bool checkEquivalence(const Variable &variable, Assignment &currentAssn,
                       Assignment &otherAssn) {
   static Solver *coreSolver = createCoreSolver(CoreSolverToUse);
-  // TODO: Remove these path args...
-  static Solver *solver = constructSolverChain(coreSolver, "", "", "", "");
+  // TODO: Do this only once to save time...?
+  static Solver *solver = constructSolverChain(
+      coreSolver, ALL_QUERIES_SMT2_FILE_NAME, SOLVER_QUERIES_SMT2_FILE_NAME,
+      ALL_QUERIES_KQUERY_FILE_NAME, SOLVER_QUERIES_KQUERY_FILE_NAME);
   static ExprBuilder *builder = createDefaultExprBuilder();
 
   const auto &otherSymValue = otherAssn.evaluate();
