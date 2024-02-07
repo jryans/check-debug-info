@@ -220,20 +220,6 @@ bool addAssignment(const StringRef moduleKind,
 
   auto &assignments = varToAs[variable];
 
-  // Check if this redundantly specifies the previous assignment
-  // Keeping redundant assignments adds no new info and can cause `IntervalMap`
-  // to assert by trying to store an empty interval.
-  if (assignments.size()) {
-    const bool hasPhis = any_of(
-        producers, [](const Value *value) { return isa<PHINode>(value); });
-    // Phis are undecided until execution, so we can't filter them here by value
-    const auto &lastAssignment = assignments.back();
-    if (!hasPhis && lastAssignment.producers == producers) {
-      KLEE_DEBUG(dbgs() << "  Producers match last assignment, skipping\n");
-      return true;
-    }
-  }
-
   bool summary = true;
   Assignment assignment = {};
 
@@ -478,6 +464,7 @@ bool gatherAssignments(const StringRef moduleKind, const Function &function,
   bool summary = true;
 
   // Some intrinsics (e.g. using a phi node) need to be processed at the end
+  // TODO: Re-check this, may not be needed anymore
   SmallVector<const DbgVariableIntrinsic *> postProcessIntrinsics;
 
   for (const auto &instruction : instructions(function)) {
@@ -609,14 +596,6 @@ bool filterRedundantAssignments(const StringRef kind,
       auto &currentAssn = assignments[i];
       auto &otherAssn = assignments[i - 1];
 
-      const bool hasPhis =
-          any_of(currentAssn.producers,
-                 [](const Value *value) { return isa<PHINode>(value); });
-
-      // Only attempting to filter phi-based assignments dynamically
-      if (!hasPhis)
-        continue;
-
       const auto &otherSymValue = otherAssn.evaluate();
       const auto &currentSymValue = currentAssn.evaluate();
       if (!currentSymValue) {
@@ -656,7 +635,7 @@ bool filterRedundantAssignments(const StringRef kind,
 
       bool result = checkEquivalence(variable, currentAssn, otherAssn);
       if (result) {
-        KLEE_DEBUG(dbgs() << "Removing: " << currentAssn << "\n");
+        KLEE_DEBUG(dbgs() << "🔔 Removing: " << currentAssn << "\n");
         assignments.erase(assignments.begin() + i);
         --i;
         --e;
@@ -680,6 +659,8 @@ bool buildEncounterToAssignmentMap(const VariablesSet &variables,
       continue;
     KLEE_DEBUG(dbgs() << "Collating encountered assignments: " << variable
                       << "\n");
+    // This needs to re-number in case of gaps (after removing redundancies)
+    unsigned int nextRenumberedEncounter = 0;
     for (size_t i = 0, e = assignments.size(); i < e; ++i) {
       auto &assignment = assignments[i];
 
@@ -696,6 +677,10 @@ bool buildEncounterToAssignmentMap(const VariablesSet &variables,
         summary = false;
         continue;
       }
+
+      // Assignments are pre-sorted by encounter
+      // We can re-number here as we iterate and still preserve order
+      assignment.encounter = nextRenumberedEncounter++;
 
       KLEE_DEBUG(dbgs() << "  " << assignment << "\n");
 
@@ -1023,7 +1008,9 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   outs() << "### Assignments\n\n";
 
-  // Filter out any phi-based redundant assignments now that we have values
+  // Filter out any redundant assignments now that we have values
+  // Keeping redundant assignments adds no new info and can confuse matching
+  // assignments by execution encounter order.
 
   summary &= filterRedundantAssignments("Before", beforeVariables, beforeVToAs,
                                         beforeCompleteExecution,
@@ -1034,7 +1021,8 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
                                  afterCompleteExecution, afterFunctionCovered);
 
   // Sort assignments by encounter order
-  // Not required, but it does ease debugging
+  // `buildEncounterToAssignmentMap` assumes they are sorted
+  // Eases debugging as well
   for (auto &varAssignments : beforeVToAs)
     sort(varAssignments.second);
   for (auto &varAssignments : afterVToAs)
