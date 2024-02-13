@@ -876,8 +876,8 @@ bool checkAssignments(const StringRef currentKind, const VAs &currentVAs,
   bool match = !mismatchedCoords && !mismatchedValue && !missing;
 
   outs() << (match ? "✅ " : "❌ ");
-  outs() << currentKind << " symbolic values checked against "
-         << otherKind.lower() << "\n";
+  outs() << currentKind << " symbolic values checked using "
+         << otherKind.lower() << " as reference\n";
   outs() << "  Assignments:       " << currentVAs.size() << "\n";
   outs() << "  Matching Coords:   " << matchingCoords << "\n";
   outs() << "  Matching Value:    " << matchingValue << "\n";
@@ -1078,7 +1078,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   outs() << "\n"; // ### Assignments
 
   // Check before assignments against after assignments on the same source line
-  outs() << "#### Check before against after\n\n";
+  outs() << "#### Check before using after as reference\n\n";
   summary &= checkAssignments("Before", beforeFlatVAs, beforeVToAs,
                               beforeCompleteExecution, beforeFunctionCovered,
                               "After", afterVToEncToA, afterCompleteExecution,
@@ -1088,7 +1088,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   // TODO: Deduplicate pairings already checked by the previous direction
   // Check after assignments against before assignments on the same source line
-  outs() << "#### Check after against before\n\n";
+  outs() << "#### Check after using before as reference\n\n";
   summary &= checkAssignments("After", afterFlatVAs, afterVToAs,
                               afterCompleteExecution, afterFunctionCovered,
                               "Before", beforeVToEncToA,
