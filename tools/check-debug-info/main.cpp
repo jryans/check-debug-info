@@ -750,7 +750,8 @@ bool checkAssignments(const StringRef currentKind, const VAs &currentVAs,
                       const VToEncounterToA &otherVToEncToA,
                       const bool otherCompleteExecution,
                       const bool otherFunctionCovered) {
-  size_t equal = 0, notEqual = 0, unused = 0, unreachable = 0, removable = 0;
+  size_t equal = 0, notEqual = 0;
+  size_t missing = 0, unused = 0, unreachable = 0, removable = 0;
 
   for (size_t i = 0, e = currentVAs.size(); i < e; ++i) {
     auto &current = currentVAs[i];
@@ -779,7 +780,7 @@ bool checkAssignments(const StringRef currentKind, const VAs &currentVAs,
       } else {
         outs() << "❌ " << otherKind << " encountered assns for " << variable
                << " not found\n";
-        ++notEqual;
+        ++missing;
       }
       KLEE_DEBUG(dbgs() << "\n");
       continue;
@@ -795,7 +796,7 @@ bool checkAssignments(const StringRef currentKind, const VAs &currentVAs,
       } else {
         outs() << "❌ " << otherKind << " encountered assn for " << variable
                << " at " << currentAssn << " not found\n";
-        ++notEqual;
+        ++missing;
       }
       KLEE_DEBUG(dbgs() << "\n");
       continue;
@@ -822,7 +823,7 @@ bool checkAssignments(const StringRef currentKind, const VAs &currentVAs,
         outs() << "❌ " << currentKind << " " << variable << " "
                << "assn " << currentAssn << " has no symbolic value "
                << "from " << currentAssn.producers << "\n";
-        ++notEqual;
+        ++missing;
       }
       KLEE_DEBUG(dbgs() << "\n");
       continue;
@@ -840,7 +841,7 @@ bool checkAssignments(const StringRef currentKind, const VAs &currentVAs,
         outs() << "❌ " << otherKind << " " << variable << " "
                << "assn " << otherAssn << " has no symbolic value "
                << "from " << otherAssn.producers << "\n";
-        ++notEqual;
+        ++missing;
       }
       KLEE_DEBUG(dbgs() << "\n");
       continue;
@@ -866,14 +867,17 @@ bool checkAssignments(const StringRef currentKind, const VAs &currentVAs,
     KLEE_DEBUG(dbgs() << "\n");
   }
 
-  bool match = !notEqual;
+  bool match = !notEqual && !missing;
 
   outs() << (match ? "✅ " : "❌ ");
   outs() << currentKind << " symbolic values checked against "
          << otherKind.lower() << "\n";
   outs() << "  Assignments: " << currentVAs.size() << "\n";
   outs() << "  Matching:    " << equal << "\n";
+  outs() << "Errors:\n";
   outs() << "  Mismatched:  " << notEqual << "\n";
+  outs() << "  Missing:     " << missing << "\n";
+  outs() << "Warnings:\n";
   outs() << "  Unused:      " << unused << "\n";
   outs() << "  Unreachable: " << unreachable << "\n";
   outs() << "  Removable:   " << removable << "\n";
