@@ -750,7 +750,8 @@ bool checkAssignments(const StringRef currentKind, const VAs &currentVAs,
                       const VToEncounterToA &otherVToEncToA,
                       const bool otherCompleteExecution,
                       const bool otherFunctionCovered) {
-  size_t equal = 0, notEqual = 0;
+  size_t matchingValue = 0, mismatchedValue = 0;
+  size_t matchingCoords = 0, mismatchedCoords = 0;
   size_t missing = 0, unused = 0, unreachable = 0, removable = 0;
 
   for (size_t i = 0, e = currentVAs.size(); i < e; ++i) {
@@ -802,12 +803,17 @@ bool checkAssignments(const StringRef currentKind, const VAs &currentVAs,
       continue;
     }
     Assignment &otherAssn = *otherAssnLookup->second;
+
     // This does _not_ check symbolic values
-    if (otherAssn != currentAssn) {
-      outs() << "🔔 " << otherKind << " " << variable << " assn " << otherAssn
+    if (otherAssn.liveLine == currentAssn.liveLine) {
+      ++matchingCoords;
+    } else {
+      outs() << "❌ " << otherKind << " " << variable << " assn " << otherAssn
              << " coordinates don't match " << currentKind.lower() << " assn "
              << currentAssn << "\n";
+      ++mismatchedCoords;
     }
+
     const auto &currentSymValue = currentAssn.evaluate();
     const auto &otherSymValue = otherAssn.evaluate();
     if (!currentSymValue) {
@@ -860,27 +866,29 @@ bool checkAssignments(const StringRef currentKind, const VAs &currentVAs,
     }
 
     if (result)
-      ++equal;
+      ++matchingValue;
     else
-      ++notEqual;
+      ++mismatchedValue;
 
     KLEE_DEBUG(dbgs() << "\n");
   }
 
-  bool match = !notEqual && !missing;
+  bool match = !mismatchedCoords && !mismatchedValue && !missing;
 
   outs() << (match ? "✅ " : "❌ ");
   outs() << currentKind << " symbolic values checked against "
          << otherKind.lower() << "\n";
-  outs() << "  Assignments: " << currentVAs.size() << "\n";
-  outs() << "  Matching:    " << equal << "\n";
+  outs() << "  Assignments:       " << currentVAs.size() << "\n";
+  outs() << "  Matching Coords:   " << matchingCoords << "\n";
+  outs() << "  Matching Value:    " << matchingValue << "\n";
   outs() << "Errors:\n";
-  outs() << "  Mismatched:  " << notEqual << "\n";
-  outs() << "  Missing:     " << missing << "\n";
+  outs() << "  Mismatched Coords: " << mismatchedCoords << "\n";
+  outs() << "  Mismatched Value:  " << mismatchedValue << "\n";
+  outs() << "  Missing:           " << missing << "\n";
   outs() << "Warnings:\n";
-  outs() << "  Unused:      " << unused << "\n";
-  outs() << "  Unreachable: " << unreachable << "\n";
-  outs() << "  Removable:   " << removable << "\n";
+  outs() << "  Unused:            " << unused << "\n";
+  outs() << "  Unreachable:       " << unreachable << "\n";
+  outs() << "  Removable:         " << removable << "\n";
 
   return match;
 }
