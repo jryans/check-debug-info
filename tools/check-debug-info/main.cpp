@@ -742,135 +742,138 @@ SmallVector<std::unique_ptr<Module>, 2> loadModules(LLVMContext &ctx) {
   return bothModules;
 }
 
-bool checkAssignments(const StringRef currentKind, const VAs &currentVAs,
-                      const VToAs &currentVToAs,
+bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
                       const bool currentCompleteExecution,
                       const bool currentFunctionCovered,
                       const StringRef otherKind,
                       const VToEncounterToA &otherVToEncToA,
                       const bool otherCompleteExecution,
                       const bool otherFunctionCovered) {
+  size_t total = 0;
   size_t matchingValue = 0, mismatchedValue = 0;
   size_t matchingCoords = 0, mismatchedCoords = 0;
   size_t missing = 0, unused = 0, unreachable = 0, removable = 0;
 
-  for (size_t i = 0, e = currentVAs.size(); i < e; ++i) {
-    auto &current = currentVAs[i];
-    const Variable &variable = current.first;
-    const auto &otherEncToALookup = otherVToEncToA.find(variable);
-    if (otherEncToALookup == otherVToEncToA.end()) {
-      // Check if all current assignments are removable
-      bool currentVariableRemovable = true;
-      const auto &currentAssnsLookup = currentVToAs.find(variable);
-      if (currentAssnsLookup != currentVToAs.end()) {
-        for (const auto &assn : currentAssnsLookup->second) {
-          if (!assn.removable) {
-            currentVariableRemovable = false;
-            break;
+  for (auto &currentVWithAs : currentVToAs) {
+    const Variable &variable = currentVWithAs.first;
+    Assignments &currentAssns =
+        const_cast<Assignments &>(currentVWithAs.second);
+    for (auto &currentAssn : currentAssns) {
+      ++total;
+      const auto &otherEncToALookup = otherVToEncToA.find(variable);
+      if (otherEncToALookup == otherVToEncToA.end()) {
+        // Check if all current assignments are removable
+        bool currentVariableRemovable = true;
+        const auto &currentAssnsLookup = currentVToAs.find(variable);
+        if (currentAssnsLookup != currentVToAs.end()) {
+          for (const auto &assn : currentAssnsLookup->second) {
+            if (!assn.removable) {
+              currentVariableRemovable = false;
+              break;
+            }
           }
         }
+        if (currentVariableRemovable) {
+          outs() << "🔔 " << otherKind << " encountered assns for (removable) "
+                 << variable << " not found\n";
+          ++removable;
+        } else if (variable.unused) {
+          outs() << "🔔 " << otherKind << " encountered assns for (unused) "
+                 << variable << " not found\n";
+          ++unused;
+        } else {
+          outs() << "❌ " << otherKind << " encountered assns for " << variable
+                 << " not found\n";
+          ++missing;
+        }
+        KLEE_DEBUG(dbgs() << "\n");
+        continue;
       }
-      if (currentVariableRemovable) {
-        outs() << "🔔 " << otherKind << " encountered assns for (removable) "
-               << variable << " not found\n";
-        ++removable;
-      } else if (variable.unused) {
-        outs() << "🔔 " << otherKind << " encountered assns for (unused) "
-               << variable << " not found\n";
-        ++unused;
+      auto &otherEncToA = otherVToEncToA.at(variable);
+      auto otherAssnLookup = otherEncToA.find(*currentAssn.encounter);
+      if (otherAssnLookup == otherEncToA.end()) {
+        if (currentAssn.removable) {
+          outs() << "🔔 " << otherKind << " (removable) encountered assn for "
+                 << variable << " at " << currentAssn << " not found\n";
+          ++removable;
+        } else {
+          outs() << "❌ " << otherKind << " encountered assn for " << variable
+                 << " at " << currentAssn << " not found\n";
+          ++missing;
+        }
+        KLEE_DEBUG(dbgs() << "\n");
+        continue;
+      }
+      Assignment &otherAssn = *otherAssnLookup->second;
+
+      // This does _not_ check symbolic values
+      if (otherAssn.liveLine == currentAssn.liveLine) {
+        ++matchingCoords;
       } else {
-        outs() << "❌ " << otherKind << " encountered assns for " << variable
-               << " not found\n";
-        ++missing;
+        outs() << "❌ " << otherKind << " " << variable << " assn " << otherAssn
+               << " coordinates don't match " << currentKind.lower() << " assn "
+               << currentAssn << "\n";
+        ++mismatchedCoords;
       }
-      KLEE_DEBUG(dbgs() << "\n");
-      continue;
-    }
-    Assignment &currentAssn = *current.second;
-    auto &otherEncToA = otherVToEncToA.at(variable);
-    auto otherAssnLookup = otherEncToA.find(*currentAssn.encounter);
-    if (otherAssnLookup == otherEncToA.end()) {
-      if (currentAssn.removable) {
-        outs() << "🔔 " << otherKind << " (removable) encountered assn for "
-               << variable << " at " << currentAssn << " not found\n";
-        ++removable;
+
+      const auto &currentSymValue = currentAssn.evaluate();
+      const auto &otherSymValue = otherAssn.evaluate();
+      if (!currentSymValue) {
+        if (currentCompleteExecution && !currentFunctionCovered) {
+          // If execution is complete but some coverage is missing, then relax
+          // missing value to unreachable
+          outs() << "🔔 " << currentKind << " " << variable << " "
+                 << "assn " << currentAssn << " has no symbolic value "
+                 << "(likely unreachable) "
+                 << "from " << currentAssn.producers << "\n";
+          ++unreachable;
+        } else {
+          outs() << "❌ " << currentKind << " " << variable << " "
+                 << "assn " << currentAssn << " has no symbolic value "
+                 << "from " << currentAssn.producers << "\n";
+          ++missing;
+        }
+        KLEE_DEBUG(dbgs() << "\n");
+        continue;
+      }
+      if (!otherSymValue) {
+        if (otherCompleteExecution && !otherFunctionCovered) {
+          // If execution is complete but some coverage is missing, then relax
+          // missing value to unreachable
+          outs() << "🔔 " << otherKind << " " << variable << " "
+                 << "assn " << otherAssn << " has no symbolic value "
+                 << "(likely unreachable) "
+                 << "from " << otherAssn.producers << "\n";
+          ++unreachable;
+        } else {
+          outs() << "❌ " << otherKind << " " << variable << " "
+                 << "assn " << otherAssn << " has no symbolic value "
+                 << "from " << otherAssn.producers << "\n";
+          ++missing;
+        }
+        KLEE_DEBUG(dbgs() << "\n");
+        continue;
+      }
+
+      bool result = checkEquivalence(variable, currentAssn, otherAssn);
+      if (result) {
+        KLEE_DEBUG(dbgs() << "✅ " << otherKind << " " << variable << " assn "
+                          << otherAssn << " symbolic value matches "
+                          << currentKind.lower() << " assn " << currentAssn
+                          << "\n");
       } else {
-        outs() << "❌ " << otherKind << " encountered assn for " << variable
-               << " at " << currentAssn << " not found\n";
-        ++missing;
+        outs() << "❌ " << otherKind << " " << variable << " assn " << otherAssn
+               << " symbolic value doesn't match " << currentKind.lower()
+               << " assn " << currentAssn << "\n";
       }
+
+      if (result)
+        ++matchingValue;
+      else
+        ++mismatchedValue;
+
       KLEE_DEBUG(dbgs() << "\n");
-      continue;
     }
-    Assignment &otherAssn = *otherAssnLookup->second;
-
-    // This does _not_ check symbolic values
-    if (otherAssn.liveLine == currentAssn.liveLine) {
-      ++matchingCoords;
-    } else {
-      outs() << "❌ " << otherKind << " " << variable << " assn " << otherAssn
-             << " coordinates don't match " << currentKind.lower() << " assn "
-             << currentAssn << "\n";
-      ++mismatchedCoords;
-    }
-
-    const auto &currentSymValue = currentAssn.evaluate();
-    const auto &otherSymValue = otherAssn.evaluate();
-    if (!currentSymValue) {
-      if (currentCompleteExecution && !currentFunctionCovered) {
-        // If execution is complete but some coverage is missing, then relax
-        // missing value to unreachable
-        outs() << "🔔 " << currentKind << " " << variable << " "
-               << "assn " << currentAssn << " has no symbolic value "
-               << "(likely unreachable) "
-               << "from " << currentAssn.producers << "\n";
-        ++unreachable;
-      } else {
-        outs() << "❌ " << currentKind << " " << variable << " "
-               << "assn " << currentAssn << " has no symbolic value "
-               << "from " << currentAssn.producers << "\n";
-        ++missing;
-      }
-      KLEE_DEBUG(dbgs() << "\n");
-      continue;
-    }
-    if (!otherSymValue) {
-      if (otherCompleteExecution && !otherFunctionCovered) {
-        // If execution is complete but some coverage is missing, then relax
-        // missing value to unreachable
-        outs() << "🔔 " << otherKind << " " << variable << " "
-               << "assn " << otherAssn << " has no symbolic value "
-               << "(likely unreachable) "
-               << "from " << otherAssn.producers << "\n";
-        ++unreachable;
-      } else {
-        outs() << "❌ " << otherKind << " " << variable << " "
-               << "assn " << otherAssn << " has no symbolic value "
-               << "from " << otherAssn.producers << "\n";
-        ++missing;
-      }
-      KLEE_DEBUG(dbgs() << "\n");
-      continue;
-    }
-
-    bool result = checkEquivalence(variable, currentAssn, otherAssn);
-    if (result) {
-      KLEE_DEBUG(dbgs() << "✅ " << otherKind << " " << variable << " assn "
-                        << otherAssn << " symbolic value matches "
-                        << currentKind.lower() << " assn " << currentAssn
-                        << "\n");
-    } else {
-      outs() << "❌ " << otherKind << " " << variable << " assn " << otherAssn
-             << " symbolic value doesn't match " << currentKind.lower()
-             << " assn " << currentAssn << "\n";
-    }
-
-    if (result)
-      ++matchingValue;
-    else
-      ++mismatchedValue;
-
-    KLEE_DEBUG(dbgs() << "\n");
   }
 
   bool match = !mismatchedCoords && !mismatchedValue && !missing;
@@ -878,7 +881,7 @@ bool checkAssignments(const StringRef currentKind, const VAs &currentVAs,
   outs() << (match ? "✅ " : "❌ ");
   outs() << currentKind << " symbolic values checked using "
          << otherKind.lower() << " as reference\n";
-  outs() << "  Assignments:       " << currentVAs.size() << "\n";
+  outs() << "  Assignments:       " << total << "\n";
   outs() << "  Matching Coords:   " << matchingCoords << "\n";
   outs() << "  Matching Value:    " << matchingValue << "\n";
   outs() << "Errors:\n";
@@ -1079,19 +1082,17 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   // Check before assignments against after assignments on the same source line
   outs() << "#### Check before using after as reference\n\n";
-  summary &= checkAssignments("Before", beforeFlatVAs, beforeVToAs,
-                              beforeCompleteExecution, beforeFunctionCovered,
-                              "After", afterVToEncToA, afterCompleteExecution,
-                              afterFunctionCovered);
+  summary &= checkAssignments("Before", beforeVToAs, beforeCompleteExecution,
+                              beforeFunctionCovered, "After", afterVToEncToA,
+                              afterCompleteExecution, afterFunctionCovered);
 
   outs() << "\n";
 
   // TODO: Deduplicate pairings already checked by the previous direction
   // Check after assignments against before assignments on the same source line
   outs() << "#### Check after using before as reference\n\n";
-  summary &= checkAssignments("After", afterFlatVAs, afterVToAs,
-                              afterCompleteExecution, afterFunctionCovered,
-                              "Before", beforeVToEncToA,
+  summary &= checkAssignments("After", afterVToAs, afterCompleteExecution,
+                              afterFunctionCovered, "Before", beforeVToEncToA,
                               beforeCompleteExecution, beforeFunctionCovered);
 
   outs() << "\n"; // ### Symbolic values
