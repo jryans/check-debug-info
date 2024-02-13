@@ -869,6 +869,7 @@ bool checkValues(const StringRef currentKind, const VAs &currentVAs,
   outs() << (match ? "✅ " : "❌ ");
   outs() << currentKind << " symbolic values checked against "
          << otherKind.lower() << "\n";
+  outs() << "  Assignments: " << currentVAs.size() << "\n";
   outs() << "  Matching:    " << equal << "\n";
   outs() << "  Mismatched:  " << notEqual << "\n";
   outs() << "  Unused:      " << unused << "\n";
