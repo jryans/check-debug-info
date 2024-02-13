@@ -742,12 +742,14 @@ SmallVector<std::unique_ptr<Module>, 2> loadModules(LLVMContext &ctx) {
   return bothModules;
 }
 
-bool checkValues(const StringRef currentKind, const VAs &currentVAs,
-                 const VToAs &currentVToAs, const bool currentCompleteExecution,
-                 const bool currentFunctionCovered, const StringRef otherKind,
-                 const VToEncounterToA &otherVToEncToA,
-                 const bool otherCompleteExecution,
-                 const bool otherFunctionCovered) {
+bool checkAssignments(const StringRef currentKind, const VAs &currentVAs,
+                      const VToAs &currentVToAs,
+                      const bool currentCompleteExecution,
+                      const bool currentFunctionCovered,
+                      const StringRef otherKind,
+                      const VToEncounterToA &otherVToEncToA,
+                      const bool otherCompleteExecution,
+                      const bool otherFunctionCovered) {
   size_t equal = 0, notEqual = 0, unused = 0, unreachable = 0, removable = 0;
 
   for (size_t i = 0, e = currentVAs.size(); i < e; ++i) {
@@ -1065,20 +1067,20 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
 
   // Check before assignments against after assignments on the same source line
   outs() << "#### Check before against after\n\n";
-  summary &=
-      checkValues("Before", beforeFlatVAs, beforeVToAs, beforeCompleteExecution,
-                  beforeFunctionCovered, "After", afterVToEncToA,
-                  afterCompleteExecution, afterFunctionCovered);
+  summary &= checkAssignments("Before", beforeFlatVAs, beforeVToAs,
+                              beforeCompleteExecution, beforeFunctionCovered,
+                              "After", afterVToEncToA, afterCompleteExecution,
+                              afterFunctionCovered);
 
   outs() << "\n";
 
   // TODO: Deduplicate pairings already checked by the previous direction
   // Check after assignments against before assignments on the same source line
   outs() << "#### Check after against before\n\n";
-  summary &=
-      checkValues("After", afterFlatVAs, afterVToAs, afterCompleteExecution,
-                  afterFunctionCovered, "Before", beforeVToEncToA,
-                  beforeCompleteExecution, beforeFunctionCovered);
+  summary &= checkAssignments("After", afterFlatVAs, afterVToAs,
+                              afterCompleteExecution, afterFunctionCovered,
+                              "Before", beforeVToEncToA,
+                              beforeCompleteExecution, beforeFunctionCovered);
 
   outs() << "\n"; // ### Symbolic values
 
