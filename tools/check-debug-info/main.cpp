@@ -749,15 +749,18 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
                       const VToEncounterToA &otherVToEncToA,
                       const bool otherCompleteExecution,
                       const bool otherFunctionCovered) {
-  size_t total = 0;
-  size_t matchingValue = 0, mismatchedValue = 0;
-  size_t matchingCoords = 0, mismatchedCoords = 0;
-  size_t missing = 0, unused = 0, unreachable = 0, removable = 0;
+  bool summary = true;
 
   for (auto &currentVWithAs : currentVToAs) {
     const Variable &variable = currentVWithAs.first;
     Assignments &currentAssns =
         const_cast<Assignments &>(currentVWithAs.second);
+
+    size_t total = 0;
+    size_t matchingValue = 0, mismatchedValue = 0;
+    size_t matchingCoords = 0, mismatchedCoords = 0;
+    size_t missing = 0, unused = 0, unreachable = 0, removable = 0;
+
     for (auto &currentAssn : currentAssns) {
       ++total;
       const auto &otherEncToALookup = otherVToEncToA.find(variable);
@@ -874,26 +877,31 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
 
       KLEE_DEBUG(dbgs() << "\n");
     }
+
+    bool match = !mismatchedCoords && !mismatchedValue && !missing;
+
+    outs() << (match ? "✅ " : "❌ ");
+    outs() << currentKind << " `" << variable.name << "` assns checked using "
+           << otherKind.lower() << " as reference\n";
+
+    outs() << "Variable:            " << variable.name << "\n";
+    outs() << "  Assignments:       " << total << "\n";
+    outs() << "  Matching Coords:   " << matchingCoords << "\n";
+    outs() << "  Matching Value:    " << matchingValue << "\n";
+    outs() << "Errors:\n";
+    outs() << "  Mismatched Coords: " << mismatchedCoords << "\n";
+    outs() << "  Mismatched Value:  " << mismatchedValue << "\n";
+    outs() << "  Missing:           " << missing << "\n";
+    outs() << "Warnings:\n";
+    outs() << "  Unused:            " << unused << "\n";
+    outs() << "  Unreachable:       " << unreachable << "\n";
+    outs() << "  Removable:         " << removable << "\n";
+    outs() << "\n";
+
+    summary &= match;
   }
 
-  bool match = !mismatchedCoords && !mismatchedValue && !missing;
-
-  outs() << (match ? "✅ " : "❌ ");
-  outs() << currentKind << " symbolic values checked using "
-         << otherKind.lower() << " as reference\n";
-  outs() << "  Assignments:       " << total << "\n";
-  outs() << "  Matching Coords:   " << matchingCoords << "\n";
-  outs() << "  Matching Value:    " << matchingValue << "\n";
-  outs() << "Errors:\n";
-  outs() << "  Mismatched Coords: " << mismatchedCoords << "\n";
-  outs() << "  Mismatched Value:  " << mismatchedValue << "\n";
-  outs() << "  Missing:           " << missing << "\n";
-  outs() << "Warnings:\n";
-  outs() << "  Unused:            " << unused << "\n";
-  outs() << "  Unreachable:       " << unreachable << "\n";
-  outs() << "  Removable:         " << removable << "\n";
-
-  return match;
+  return summary;
 }
 
 bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
@@ -980,7 +988,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
     outs() << mismatched.size() << " mismatched\n";
   }
 
-  outs() << "\n"; // ### Variables
+  outs() << "\n"; // End ### Variables
 
   outs() << "### Symbolic values\n\n";
 
@@ -1025,6 +1033,8 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
     outs() << "❌ Unable to execute all after program states\n\n";
     summary = false;
   }
+
+  // ### Symbolic values
 
   outs() << "### Assignments\n\n";
 
@@ -1078,15 +1088,13 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
       buildEncounterToAssignmentMap(afterVariables, afterVToAs, afterVToEncToA);
   KLEE_DEBUG(dbgs() << "\n");
 
-  outs() << "\n"; // ### Assignments
+  outs() << "\n";
 
   // Check before assignments against after assignments on the same source line
   outs() << "#### Check before using after as reference\n\n";
   summary &= checkAssignments("Before", beforeVToAs, beforeCompleteExecution,
                               beforeFunctionCovered, "After", afterVToEncToA,
                               afterCompleteExecution, afterFunctionCovered);
-
-  outs() << "\n";
 
   // TODO: Deduplicate pairings already checked by the previous direction
   // Check after assignments against before assignments on the same source line
@@ -1095,7 +1103,7 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
                               afterFunctionCovered, "Before", beforeVToEncToA,
                               beforeCompleteExecution, beforeFunctionCovered);
 
-  outs() << "\n"; // ### Symbolic values
+  // End ### Assignments
 
   return summary;
 }
