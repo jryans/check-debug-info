@@ -33,6 +33,7 @@ struct Variable {
   // they are frequently used.
 
   llvm::StringRef name;
+  llvm::StringRef declFile;
   unsigned int declLine;
 
   // Imported from optional diagnostics

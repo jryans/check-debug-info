@@ -1,4 +1,5 @@
 #include "Diagnostics.h"
+#include "Files.h"
 #include "ValuesCollector.h"
 #include "Variable.h"
 
@@ -20,6 +21,7 @@
 #include "klee/Support/PrintVersion.h"
 #include "klee/Support/RuntimeHandling.h"
 
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/SmallSet.h"
@@ -88,6 +90,13 @@ cl::opt<std::string> relaxViaDiagnostics(
         "Downgrades consistency issues in source ranges matching the supplied "
         "diagnostics YAML file (e.g. from `clang-tidy --export-fixes`) to "
         "warnings instead of errors (default=disabled)"),
+    cl::cat(debugInfoCheckCategory));
+
+cl::opt<bool> tsvReport(
+    "tsv",
+    cl::desc(
+        "Report consistency of each variable in tab-separated values (TSV) "
+        "format (default=disabled)"),
     cl::cat(debugInfoCheckCategory));
 
 } // namespace
@@ -359,7 +368,7 @@ bool gatherAssignments(const StringRef moduleKind,
   const DILocalVariable *diVariable = varIntrinsic->getVariable();
   assert(diVariable && "Variable intrinsic without a variable");
   Variable variable = {diVariable, diVariable->getName(),
-                       diVariable->getLine()};
+                       diVariable->getFilename(), diVariable->getLine()};
   applyVariableDiagnostics(moduleKind, diagnostics, variable);
   KLEE_DEBUG(dbgs() << moduleKind << " variable " << variable << "\n");
   variables.insert(variable);
@@ -702,7 +711,8 @@ bool buildEncounterToAssignmentMap(const VariablesSet &variables,
   return summary;
 }
 
-SmallString<128> createOutputDir(StringRef moduleFile, StringRef functionName) {
+SmallString<128> createOutputDir(const StringRef moduleFile,
+                                 const StringRef functionName) {
   SmallString<128> outputDir(moduleFile);
   sys::path::remove_filename(outputDir);
   sys::path::append(outputDir, "debug-info-values", functionName);
@@ -748,8 +758,24 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
                       const StringRef otherKind,
                       const VToEncounterToA &otherVToEncToA,
                       const bool otherCompleteExecution,
-                      const bool otherFunctionCovered) {
+                      const bool otherFunctionCovered,
+                      const StringRef functionName,
+                      Optional<std::unique_ptr<llvm::raw_fd_ostream>> &report) {
   bool summary = true;
+
+  if (report) {
+    **report << "Name\t";
+    **report << "Assignments\t";
+    **report << "Matching Coords\t";
+    **report << "Matching Value\t";
+    **report << "Mismatched Coords\t";
+    **report << "Mismatched Value\t";
+    **report << "Missing\t";
+    **report << "Unused\t";
+    **report << "Unreachable\t";
+    **report << "Removable";
+    **report << "\n\n";
+  }
 
   for (auto &currentVWithAs : currentVToAs) {
     const Variable &variable = currentVWithAs.first;
@@ -898,14 +924,29 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
     outs() << "  Removable:         " << removable << "\n";
     outs() << "\n";
 
+    if (report) {
+      **report << functionName << ", " << variable.name << ", decl "
+               << variable.declFile << ":" << variable.declLine << "\t";
+      **report << total << "\t";
+      **report << matchingCoords << "\t";
+      **report << matchingValue << "\t";
+      **report << mismatchedCoords << "\t";
+      **report << mismatchedValue << "\t";
+      **report << missing << "\t";
+      **report << unused << "\t";
+      **report << unreachable << "\t";
+      **report << removable;
+      **report << "\n";
+    }
+
     summary &= match;
   }
 
   return summary;
 }
 
-bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
-                   StringRef functionName,
+bool checkFunction(LLVMContext &ctx, const StringRef runtimeDir,
+                   const StringRef functionName,
                    const std::vector<Diagnostic> &diagnostics) {
   bool summary = true;
 
@@ -921,19 +962,25 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   // that are removed.
   ValuesCollector beforeCollector;
   Module *beforeModule;
+  Optional<std::unique_ptr<llvm::raw_fd_ostream>> beforeReport;
   {
     SmallString<128> outputDir = createOutputDir(beforeFile, functionName);
     beforeCollector.prepare(runtimeDir, std::move(bothModules[0]), functionName,
                             outputDir);
     beforeModule = beforeCollector.getModule();
+    if (tsvReport)
+      beforeReport = openOutputFile(outputDir, "consistency.tsv");
   }
   ValuesCollector afterCollector;
   Module *afterModule;
+  Optional<std::unique_ptr<llvm::raw_fd_ostream>> afterReport;
   {
     SmallString<128> outputDir = createOutputDir(afterFile, functionName);
     afterCollector.prepare(runtimeDir, std::move(bothModules[1]), functionName,
                            outputDir);
     afterModule = afterCollector.getModule();
+    if (tsvReport)
+      afterReport = openOutputFile(outputDir, "consistency.tsv");
   }
 
   const auto beforeDefinitionPtr = beforeModule->getFunction(functionName);
@@ -1094,14 +1141,16 @@ bool checkFunction(LLVMContext &ctx, StringRef runtimeDir,
   outs() << "#### Check before using after as reference\n\n";
   summary &= checkAssignments("Before", beforeVToAs, beforeCompleteExecution,
                               beforeFunctionCovered, "After", afterVToEncToA,
-                              afterCompleteExecution, afterFunctionCovered);
+                              afterCompleteExecution, afterFunctionCovered,
+                              functionName, beforeReport);
 
   // TODO: Deduplicate pairings already checked by the previous direction
   // Check after assignments against before assignments on the same source line
   outs() << "#### Check after using before as reference\n\n";
   summary &= checkAssignments("After", afterVToAs, afterCompleteExecution,
                               afterFunctionCovered, "Before", beforeVToEncToA,
-                              beforeCompleteExecution, beforeFunctionCovered);
+                              beforeCompleteExecution, beforeFunctionCovered,
+                              functionName, afterReport);
 
   // End ### Assignments
 
