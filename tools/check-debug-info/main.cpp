@@ -1168,7 +1168,6 @@ int main(int argc, char **argv) {
   // Use adjusted symbolic defaults
   MaxForks.setInitialValue(4);
   DebugExecutionTrace.setInitialValue(true);
-  OnlyUncoveredBranchTargets.setInitialValue(true);
   PCAllConstWidths.setInitialValue(true);
 
   cl::ParseCommandLineOptions(argc, argv, "Debug info consistency check\n");
