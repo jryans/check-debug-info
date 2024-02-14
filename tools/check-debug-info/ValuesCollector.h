@@ -1,6 +1,7 @@
 #ifndef VALUESCOLLECTOR_H
 #define VALUESCOLLECTOR_H
 
+#include "Files.h"
 #include "Variable.h"
 
 #include "klee/ADT/Ref.h"
@@ -71,9 +72,13 @@ public:
 
   llvm::raw_ostream &getInfoStream() const override { return *infoStream; }
 
-  std::string getOutputFilename(const std::string &filename) override;
+  std::string getOutputFilename(const std::string &filename) override {
+    return ::getOutputFilename(outputDir, filename);
+  }
   std::unique_ptr<llvm::raw_fd_ostream>
-  openOutputFile(const std::string &filename) override;
+  openOutputFile(const std::string &filename) override {
+    return ::openOutputFile(outputDir, filename);
+  }
 
   void incPathsCompleted() override {}
   void incPathsExplored(std::uint32_t num = 1) override {}

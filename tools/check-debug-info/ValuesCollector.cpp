@@ -13,7 +13,6 @@
 #include "klee/Statistics/Statistics.h"
 #include "klee/Support/Debug.h"
 #include "klee/Support/ErrorHandling.h"
-#include "klee/Support/FileHandling.h"
 #include "klee/Support/ModuleUtil.h"
 
 #include "llvm/ADT/Hashing.h"
@@ -28,7 +27,6 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/Path.h"
-#include "llvm/Support/raw_ostream.h"
 
 #include <cstddef>
 #include <map>
@@ -41,27 +39,6 @@ using namespace klee;
 using namespace llvm;
 
 #define DEBUG_TYPE "values-collector"
-
-std::string VCHandler::getOutputFilename(const std::string &filename) {
-  SmallString<128> path(outputDir);
-  sys::path::append(path, filename);
-  return path.c_str();
-}
-
-std::unique_ptr<llvm::raw_fd_ostream>
-VCHandler::openOutputFile(const std::string &filename) {
-  std::string error;
-  std::string path = getOutputFilename(filename);
-  auto f = klee_open_output_file(path, error);
-  if (!f) {
-    klee_warning("Error opening file `%s`. You may have run out of file "
-                 "descriptors: try to increase the maximum number of open file "
-                 "descriptors by using ulimit (%s).",
-                 path.c_str(), error.c_str());
-    return nullptr;
-  }
-  return f;
-}
 
 void VCHandler::visitBeforeExecution(ExecutionState &state,
                                      ExecutionEvent &event, KInstruction *ki) {

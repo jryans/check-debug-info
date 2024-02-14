@@ -1,4 +1,5 @@
 add_executable(check-debug-info
+  Files.cpp
   main.cpp
   ValuesCollector.cpp
   Variable.cpp
