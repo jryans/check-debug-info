@@ -321,7 +321,9 @@ bool addAssignment(const StringRef moduleKind,
   assignment.producers = std::move(producers);
   assignment.user = user;
   assignment.asmLine = instrInfo.getInfo(*user).assemblyLine;
-  // JRS: Why do we only run this on the before module...?
+  // Currently we only run this on the before module as we assume the after
+  // module is the optimised one. We make use of the removability of before
+  // assignments when check after assignments using before as a reference.
   if (moduleKind == "Before")
     assignment.removable = checkStaticRemovability(assignment);
 
