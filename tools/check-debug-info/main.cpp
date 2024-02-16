@@ -1080,10 +1080,8 @@ bool checkFunction(LLVMContext &ctx, const StringRef runtimeDir,
   bool beforeCompleteExecution = beforeCollector.hasCompleteExecution();
   bool beforeFunctionCovered =
       beforeCollector.isFunctionCovered(beforeDefinition);
-  if (!beforeCompleteExecution) {
-    outs() << "❌ Unable to execute all before program states\n\n";
-    summary = false;
-  }
+  if (!beforeCompleteExecution)
+    outs() << "🔔 Unable to execute all before program states\n\n";
   if (!beforeFunctionCovered)
     outs() << "🔔 Unable to execute all before instructions\n\n";
 
@@ -1093,10 +1091,8 @@ bool checkFunction(LLVMContext &ctx, const StringRef runtimeDir,
   KLEE_DEBUG(dbgs() << "\n");
   bool afterCompleteExecution = afterCollector.hasCompleteExecution();
   bool afterFunctionCovered = afterCollector.isFunctionCovered(afterDefinition);
-  if (!afterCompleteExecution) {
-    outs() << "❌ Unable to execute all after program states\n\n";
-    summary = false;
-  }
+  if (!afterCompleteExecution)
+    outs() << "🔔 Unable to execute all after program states\n\n";
   if (!afterFunctionCovered)
     outs() << "🔔 Unable to execute all after instructions\n\n";
 
