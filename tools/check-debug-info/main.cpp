@@ -700,12 +700,8 @@ bool buildEncounterToAssignmentMap(const VariablesSet &variables,
       auto &varEncounters =
           varToEncToA.emplace(std::make_pair(variable, EncounterToA()))
               .first->second;
-      if (varEncounters.count(*assignment.encounter)) {
-        outs() << "❌ Multiple assignments to variable " << variable
-               << " with same encounter order\n";
-        summary = false;
-        continue;
-      }
+      assert(!varEncounters.count(*assignment.encounter) &&
+             "Multiple assignments to variable with same encounter order");
       varEncounters[*assignment.encounter] = &assignment;
     }
   }
