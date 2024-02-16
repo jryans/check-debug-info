@@ -768,6 +768,7 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
     **report << "Matching Value\t";
     **report << "Mismatched Coords\t";
     **report << "Mismatched Value\t";
+    **report << "Not Encountered\t";
     **report << "Missing\t";
     **report << "Unused\t";
     **report << "Unreachable\t";
@@ -785,10 +786,19 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
     size_t total = 0;
     size_t matchingValue = 0, mismatchedValue = 0;
     size_t matchingCoords = 0, mismatchedCoords = 0;
-    size_t missing = 0, unused = 0, unreachable = 0, removable = 0;
+    // TODO: Clarify missing etc. by current vs. other
+    size_t notEncountered = 0, missing = 0, unused = 0, unreachable = 0,
+           removable = 0;
 
     for (auto &currentAssn : currentAssns) {
       ++total;
+      if (!currentAssn.encounter) {
+        outs() << "❌ " << currentKind << " assn " << currentAssn << " for "
+               << variable << " was not encountered during execution\n";
+        ++notEncountered;
+        KLEE_DEBUG(dbgs() << "\n");
+        continue;
+      }
       const auto &otherEncToALookup = otherVToEncToA.find(variable);
       if (otherEncToALookup == otherVToEncToA.end()) {
         // Check if all current assignments are removable
@@ -904,7 +914,8 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
       KLEE_DEBUG(dbgs() << "\n");
     }
 
-    bool match = !mismatchedCoords && !mismatchedValue && !missing;
+    bool match =
+        !mismatchedCoords && !mismatchedValue && !notEncountered && !missing;
 
     outs() << (match ? "✅ " : "❌ ");
     outs() << currentKind << " `" << variable.name << "` assns checked using "
@@ -917,6 +928,7 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
     outs() << "Errors:\n";
     outs() << "  Mismatched Coords: " << mismatchedCoords << "\n";
     outs() << "  Mismatched Value:  " << mismatchedValue << "\n";
+    outs() << "  Not Encountered:   " << notEncountered << "\n";
     outs() << "  Missing:           " << missing << "\n";
     outs() << "Warnings:\n";
     outs() << "  Unused:            " << unused << "\n";
@@ -932,6 +944,7 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
       **report << matchingValue << "\t";
       **report << mismatchedCoords << "\t";
       **report << mismatchedValue << "\t";
+      **report << notEncountered << "\t";
       **report << missing << "\t";
       **report << unused << "\t";
       **report << unreachable << "\t";
