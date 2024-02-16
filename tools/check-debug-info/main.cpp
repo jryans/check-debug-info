@@ -1100,6 +1100,14 @@ bool checkFunction(LLVMContext &ctx, const StringRef runtimeDir,
 
   outs() << "### Assignments\n\n";
 
+  // Sort assignments by encounter order
+  // `filterRedundantAssignments` and `buildEncounterToAssignmentMap` assume
+  // they are sorted and eases debugging as well
+  for (auto &varAssignments : beforeVToAs)
+    sort(varAssignments.second);
+  for (auto &varAssignments : afterVToAs)
+    sort(varAssignments.second);
+
   // Filter out any redundant assignments now that we have values
   // Keeping redundant assignments adds no new info and can confuse matching
   // assignments by execution encounter order.
@@ -1111,14 +1119,6 @@ bool checkFunction(LLVMContext &ctx, const StringRef runtimeDir,
   summary &=
       filterRedundantAssignments("After", afterVariables, afterVToAs,
                                  afterCompleteExecution, afterFunctionCovered);
-
-  // Sort assignments by encounter order
-  // `buildEncounterToAssignmentMap` assumes they are sorted
-  // Eases debugging as well
-  for (auto &varAssignments : beforeVToAs)
-    sort(varAssignments.second);
-  for (auto &varAssignments : afterVToAs)
-    sort(varAssignments.second);
 
   // May have removed assignments, rebuild flat VAs
   // TODO: Rethink use of data structures instead...
