@@ -1071,6 +1071,8 @@ bool checkFunction(LLVMContext &ctx, const StringRef runtimeDir,
     outs() << "❌ Unable to execute all before program states\n\n";
     summary = false;
   }
+  if (!beforeFunctionCovered)
+    outs() << "🔔 Unable to execute all before instructions\n\n";
 
   // Collect symbolic values for after module
   KLEE_DEBUG(dbgs() << "#### After values\n\n");
@@ -1082,6 +1084,8 @@ bool checkFunction(LLVMContext &ctx, const StringRef runtimeDir,
     outs() << "❌ Unable to execute all after program states\n\n";
     summary = false;
   }
+  if (!afterFunctionCovered)
+    outs() << "🔔 Unable to execute all after instructions\n\n";
 
   // ### Symbolic values
 
