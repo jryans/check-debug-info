@@ -775,7 +775,9 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
     **report << "Missing\t";
     **report << "Unused\t";
     **report << "Unreachable\t";
-    **report << "Removable";
+    **report << "Removable\t";
+    **report << "Complete Execution\t";
+    **report << "Function Covered";
     **report << "\n\n";
   }
 
@@ -937,7 +939,9 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
       **report << missing << "\t";
       **report << unused << "\t";
       **report << unreachable << "\t";
-      **report << removable;
+      **report << removable << "\t";
+      **report << currentCompleteExecution << "\t";
+      **report << currentFunctionCovered;
       **report << "\n";
     }
 
