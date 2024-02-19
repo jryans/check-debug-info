@@ -1178,9 +1178,7 @@ int main(int argc, char **argv) {
   cl::SetVersionPrinter(printVersion);
   KCommandLine::HideOptions(cl::getGeneralCategory());
 
-  // Use adjusted symbolic defaults
-  MaxForks.setInitialValue(4);
-  DebugExecutionTrace.setInitialValue(true);
+  // Enable widths for constants (simplifies query parsing)
   PCAllConstWidths.setInitialValue(true);
 
   cl::ParseCommandLineOptions(argc, argv, "Debug info consistency check\n");
