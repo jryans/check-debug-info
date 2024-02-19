@@ -975,27 +975,27 @@ bool checkFunction(LLVMContext &ctx, const StringRef runtimeDir,
   // Must run KLEE's module transformations (via the `prepare` call below)
   // _before_ any static analysis, as otherwise we may end up saving IR values
   // that are removed.
+  SmallString<128> beforeOutputDir = createOutputDir(beforeFile, functionName);
   ValuesCollector beforeCollector;
   Module *beforeModule;
   Optional<std::unique_ptr<llvm::raw_fd_ostream>> beforeReport;
   {
-    SmallString<128> outputDir = createOutputDir(beforeFile, functionName);
     beforeCollector.prepare(runtimeDir, std::move(bothModules[0]), functionName,
-                            outputDir);
+                            beforeOutputDir);
     beforeModule = beforeCollector.getModule();
     if (tsvReport)
-      beforeReport = openOutputFile(outputDir, "consistency.tsv");
+      beforeReport = openOutputFile(beforeOutputDir, "consistency.tsv");
   }
+  SmallString<128> afterOutputDir = createOutputDir(afterFile, functionName);
   ValuesCollector afterCollector;
   Module *afterModule;
   Optional<std::unique_ptr<llvm::raw_fd_ostream>> afterReport;
   {
-    SmallString<128> outputDir = createOutputDir(afterFile, functionName);
     afterCollector.prepare(runtimeDir, std::move(bothModules[1]), functionName,
-                           outputDir);
+                           afterOutputDir);
     afterModule = afterCollector.getModule();
     if (tsvReport)
-      afterReport = openOutputFile(outputDir, "consistency.tsv");
+      afterReport = openOutputFile(afterOutputDir, "consistency.tsv");
   }
 
   const auto beforeDefinitionPtr = beforeModule->getFunction(functionName);
