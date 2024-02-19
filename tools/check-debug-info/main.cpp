@@ -661,7 +661,8 @@ bool filterRedundantAssignments(const StringRef kind,
   return summary;
 }
 
-bool buildEncounterToAssignmentMap(const VariablesSet &variables,
+bool buildEncounterToAssignmentMap(const StringRef kind,
+                                   const VariablesSet &variables,
                                    VToAs &varToAs,
                                    VToEncounterToA &varToEncToA) {
   bool summary = true;
@@ -670,8 +671,8 @@ bool buildEncounterToAssignmentMap(const VariablesSet &variables,
     auto &assignments = varToAs[variable];
     if (assignments.empty())
       continue;
-    KLEE_DEBUG(dbgs() << "Collating encountered assignments: " << variable
-                      << "\n");
+    KLEE_DEBUG(dbgs() << "Collating encountered " << kind.lower()
+                      << " assignments: " << variable << "\n");
     // This needs to re-number in case of gaps (after removing redundancies)
     unsigned int nextRenumberedEncounter = 0;
     for (size_t i = 0, e = assignments.size(); i < e; ++i) {
@@ -1142,12 +1143,12 @@ bool checkFunction(LLVMContext &ctx, const StringRef runtimeDir,
   VToEncounterToA beforeVToEncToA;
   VToEncounterToA afterVToEncToA;
 
-  summary &= buildEncounterToAssignmentMap(beforeVariables, beforeVToAs,
-                                           beforeVToEncToA);
+  summary &= buildEncounterToAssignmentMap("Before", beforeVariables,
+                                           beforeVToAs, beforeVToEncToA);
   KLEE_DEBUG(dbgs() << "\n");
 
-  summary &=
-      buildEncounterToAssignmentMap(afterVariables, afterVToAs, afterVToEncToA);
+  summary &= buildEncounterToAssignmentMap("After", afterVariables, afterVToAs,
+                                           afterVToEncToA);
   KLEE_DEBUG(dbgs() << "\n");
 
   outs() << "\n";
