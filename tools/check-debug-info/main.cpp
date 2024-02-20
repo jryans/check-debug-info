@@ -84,6 +84,11 @@ cl::opt<std::string>
 
 cl::OptionCategory debugInfoCheckCategory("Debug info consistency options");
 
+cl::opt<unsigned int> maxFunctions(
+    "max-functions",
+    cl::desc("Only examine the first `n` functions (default=0 => all)"),
+    cl::cat(debugInfoCheckCategory));
+
 cl::opt<std::string> relaxViaDiagnostics(
     "relax-via-diagnostics",
     cl::desc(
@@ -1241,6 +1246,10 @@ int main(int argc, char **argv) {
     outs() << afterDefinitionCount << " after defined functions(s)\n";
   }
 
+  if (maxFunctions)
+    outs() << "🔔 Limited to first " << maxFunctions
+           << " functions (`--max-functions`)\n";
+
   outs() << "\n"; // ## Functions
 
   // TODO: Move this closer to actual JIT usage...
@@ -1250,9 +1259,13 @@ int main(int argc, char **argv) {
 
   const auto beforeDefinitions =
       make_filter_range(beforeFunctions, functionFilter);
+  size_t currentFunctionNum = 0;
   for (const Function &beforeDefinition : beforeDefinitions) {
     summary &=
         checkFunction(ctx, runtimeDir, beforeDefinition.getName(), diagnostics);
+    ++currentFunctionNum;
+    if (maxFunctions && currentFunctionNum == maxFunctions)
+      break;
   }
 
   outs() << "## Summary\n\n";
