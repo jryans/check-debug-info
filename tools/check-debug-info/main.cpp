@@ -1156,8 +1156,6 @@ bool checkFunction(LLVMContext &ctx, const StringRef runtimeDir,
                                            afterVToEncToA);
   KLEE_DEBUG(dbgs() << "\n");
 
-  outs() << "\n";
-
   // Check before assignments against after assignments on the same source line
   outs() << "#### Check before using after as reference\n\n";
   summary &= checkAssignments("Before", beforeVToAs, beforeCompleteExecution,
