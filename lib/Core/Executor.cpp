@@ -848,12 +848,13 @@ void Executor::initializeGlobalObjects(ExecutionState &state) {
       } else {
         addr = externalDispatcher->resolveSymbol(v.getName().str());
       }
-      if (!addr) {
-        klee_error("Unable to load symbol(%.*s) while initializing globals",
-                   static_cast<int>(v.getName().size()), v.getName().data());
-      }
-      for (unsigned offset = 0; offset < mo->size; offset++) {
-        os->write8(offset, static_cast<unsigned char *>(addr)[offset]);
+      if (addr) {
+        for (unsigned offset = 0; offset < mo->size; offset++) {
+          os->write8(offset, static_cast<unsigned char *>(addr)[offset]);
+        }
+      } else {
+        klee_warning("Unable to load symbol(%.*s) while initializing globals",
+                     static_cast<int>(v.getName().size()), v.getName().data());
       }
     } else if (v.hasInitializer()) {
       initializeGlobalObject(state, os, v.getInitializer(), 0);
