@@ -140,12 +140,12 @@ static bool isWidthKW(const char *Str, unsigned N) {
 Token &Lexer::SetIdentifierTokenKind(Token &Result) {
   unsigned Length = BufferPos - Result.start;
   switch (Length) {
-  case 3:
-    if (memcmp("def", Result.start, 3) == 0)
-      return SetTokenKind(Result, Token::KWReserved);
-    if (memcmp("var", Result.start, 3) == 0)
-      return SetTokenKind(Result, Token::KWReserved);
-    break;
+  // case 3:
+  //   if (memcmp("def", Result.start, 3) == 0)
+  //     return SetTokenKind(Result, Token::KWReserved);
+  //   if (memcmp("var", Result.start, 3) == 0)
+  //     return SetTokenKind(Result, Token::KWReserved);
+  //   break;
 
   case 4:
     if (memcmp("true", Result.start, 4) == 0)
