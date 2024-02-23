@@ -76,6 +76,8 @@ std::string printModule(const Module &module) {
   std::string str;
   raw_string_ostream out(str);
 
+  // TODO: Rewrite this, very slow for large modules
+
   // Print module as normal
   out << module;
   out.flush();

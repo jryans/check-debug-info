@@ -582,7 +582,7 @@ Executor::setModule(std::vector<std::unique_ptr<llvm::Module>> &modules,
   kmodule->checkModule();
 
   // 4.) Manifest the module
-  kmodule->manifest(interpreterHandler, StatsTracker::useStatistics());
+  kmodule->manifest(interpreterHandler);
 
   specialFunctionHandler->bind();
 

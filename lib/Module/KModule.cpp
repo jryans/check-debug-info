@@ -64,8 +64,8 @@ namespace {
 
   cl::opt<bool>
   OutputSource("output-source",
-               cl::desc("Write the assembly for the final transformed source (default=true)"),
-               cl::init(true),
+               cl::desc("Write the assembly for the final transformed source (default=false)"),
+               cl::init(false),
 	       cl::cat(ModuleCat));
 
   cl::opt<bool>
@@ -284,8 +284,8 @@ void KModule::optimiseAndPrepare(
   pm3.run(*module);
 }
 
-void KModule::manifest(InterpreterHandler *ih, bool forceSourceOutput) {
-  if (OutputSource || forceSourceOutput) {
+void KModule::manifest(InterpreterHandler *ih) {
+  if (OutputSource) {
     std::unique_ptr<llvm::raw_fd_ostream> os(ih->openOutputFile("assembly.ll"));
     assert(os && !os->has_error() && "unable to open source output");
     *os << printModule(*module);
