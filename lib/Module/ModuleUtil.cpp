@@ -154,6 +154,8 @@ klee::linkModules(std::vector<std::unique_ptr<llvm::Module>> &modules,
 
     // Just link all modules together
     for (auto &module : modules) {
+      if (!module)
+        continue;
       if (linkTwoModules(composite.get(), std::move(module), errorMsg))
         continue;
 
