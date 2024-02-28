@@ -480,6 +480,10 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
     klee_error("Failed to create core solver\n");
   }
 
+  // This solver chain _should_ be safe to reuse across functions.
+  // Caching solvers track pointers to `Array` instances referenced in read
+  // expressions, and those `Array`s are owned by the `ArrayCache` here, which
+  // is preserved across functions.
   Solver *solver = constructSolverChain(
       coreSolver,
       interpreterHandler->getOutputFilename(ALL_QUERIES_SMT2_FILE_NAME),
@@ -494,48 +498,6 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
 
   if (OnlyOutputStatesCoveringNew && !StatsTracker::useIStats())
     klee_error("To use --only-output-states-covering-new, you need to enable --output-istats.");
-
-  if (DebugPrintInstructions.isSet(FILE_ALL) ||
-      DebugPrintInstructions.isSet(FILE_COMPACT) ||
-      DebugPrintInstructions.isSet(FILE_SRC)) {
-    std::string debug_file_name =
-        interpreterHandler->getOutputFilename("instructions.txt");
-    std::string error;
-#ifdef HAVE_ZLIB_H
-    if (!DebugCompressInstructions) {
-#endif
-      debugInstFile = klee_open_output_file(debug_file_name, error);
-#ifdef HAVE_ZLIB_H
-    } else {
-      debug_file_name.append(".gz");
-      debugInstFile = klee_open_compressed_output_file(debug_file_name, error);
-    }
-#endif
-    if (!debugInstFile) {
-      klee_error("Could not open file %s : %s", debug_file_name.c_str(),
-                 error.c_str());
-    }
-  }
-
-  if (DebugExecutionTrace) {
-    std::string execTraceTextName =
-        interpreterHandler->getOutputFilename("execution.txt");
-    std::string error;
-    execTraceText = klee_open_output_file(execTraceTextName, error);
-    if (!execTraceText) {
-      klee_error("Could not open file %s : %s", execTraceTextName.c_str(),
-                 error.c_str());
-    }
-    std::string execTraceYAMLName =
-        interpreterHandler->getOutputFilename("execution.yml");
-    execTraceYAMLOS = klee_open_output_file(execTraceYAMLName, error);
-    if (!execTraceYAMLOS) {
-      klee_error("Could not open file %s : %s", execTraceYAMLName.c_str(),
-                 error.c_str());
-    } else {
-      execTraceYAML = std::make_unique<llvm::yaml::Output>(*execTraceYAMLOS);
-    }
-  }
 }
 
 llvm::Module *
@@ -4888,6 +4850,48 @@ void Executor::runFunctionSetup(ExecutionState &state) {
       new StatsTracker(*this,
                        interpreterHandler->getOutputFilename("assembly.ll"),
                        userSearcherRequiresMD2U());
+  }
+
+  if (DebugPrintInstructions.isSet(FILE_ALL) ||
+      DebugPrintInstructions.isSet(FILE_COMPACT) ||
+      DebugPrintInstructions.isSet(FILE_SRC)) {
+    std::string debug_file_name =
+        interpreterHandler->getOutputFilename("instructions.txt");
+    std::string error;
+#ifdef HAVE_ZLIB_H
+    if (!DebugCompressInstructions) {
+#endif
+      debugInstFile = klee_open_output_file(debug_file_name, error);
+#ifdef HAVE_ZLIB_H
+    } else {
+      debug_file_name.append(".gz");
+      debugInstFile = klee_open_compressed_output_file(debug_file_name, error);
+    }
+#endif
+    if (!debugInstFile) {
+      klee_error("Could not open file %s : %s", debug_file_name.c_str(),
+                 error.c_str());
+    }
+  }
+
+  if (DebugExecutionTrace) {
+    std::string execTraceTextName =
+        interpreterHandler->getOutputFilename("execution.txt");
+    std::string error;
+    execTraceText = klee_open_output_file(execTraceTextName, error);
+    if (!execTraceText) {
+      klee_error("Could not open file %s : %s", execTraceTextName.c_str(),
+                 error.c_str());
+    }
+    std::string execTraceYAMLName =
+        interpreterHandler->getOutputFilename("execution.yml");
+    execTraceYAMLOS = klee_open_output_file(execTraceYAMLName, error);
+    if (!execTraceYAMLOS) {
+      klee_error("Could not open file %s : %s", execTraceYAMLName.c_str(),
+                 error.c_str());
+    } else {
+      execTraceYAML = std::make_unique<llvm::yaml::Output>(*execTraceYAMLOS);
+    }
   }
 
   // Initialize the context.

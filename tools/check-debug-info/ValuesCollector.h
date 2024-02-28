@@ -64,11 +64,17 @@ private:
   std::map<Variable, unsigned int> nextEncounters;
 
 public:
-  VCHandler(llvm::StringRef outputDir)
-      : outputDir(outputDir), infoStream(openOutputFile("info")) {}
+  VCHandler() {}
 
   void setInterpreter(klee::Interpreter *interp) { interpreter = interp; }
-  void setVarsAssignments(VAs *v) { varsAssignments = v; }
+  void setOutputDir(llvm::StringRef outputDirectory) {
+    outputDir = outputDirectory;
+    infoStream = openOutputFile("info");
+  }
+  void setVarsAssignments(VAs *v) {
+    varsAssignments = v;
+    nextEncounters.clear();
+  }
 
   llvm::raw_ostream &getInfoStream() const override { return *infoStream; }
 
@@ -104,13 +110,14 @@ class ValuesCollector {
 private:
   std::unique_ptr<VCHandler> handler;
   std::unique_ptr<klee::Interpreter> interpreter;
-  llvm::Function *entryFn;
 
 public:
-  void prepare(llvm::StringRef runtimeDir, std::unique_ptr<llvm::Module> module,
-               llvm::StringRef functionName, llvm::StringRef outputDir);
+  void prepare(const llvm::StringRef moduleDir,
+               const llvm::StringRef runtimeDir,
+               std::unique_ptr<llvm::Module> module);
 
-  void collect(VAs *varsAssignments);
+  void collect(const llvm::StringRef functionName,
+               const llvm::StringRef outputDir, VAs *varsAssignments);
 
   llvm::Module *getModule() const { return interpreter->getModule(); }
 

@@ -174,9 +174,9 @@ ref<Expr> VCHandler::resolvePointers(ExecutionState &state,
   return symbolicValue;
 }
 
-void ValuesCollector::prepare(StringRef runtimeDir,
-                              std::unique_ptr<llvm::Module> mainModule,
-                              StringRef functionName, StringRef outputDir) {
+void ValuesCollector::prepare(const StringRef moduleDir,
+                              const StringRef runtimeDir,
+                              std::unique_ptr<llvm::Module> mainModule) {
   LLVMContext &ctx = mainModule->getContext();
   const std::string &moduleTriple = mainModule->getTargetTriple();
   std::string hostTriple = llvm::sys::getDefaultTargetTriple();
@@ -197,11 +197,16 @@ void ValuesCollector::prepare(StringRef runtimeDir,
   std::vector<std::unique_ptr<llvm::Module>> modules;
   modules.emplace_back(std::move(mainModule));
 
-  Interpreter::ModuleOptions moduleOpts(runtimeDir.str(), functionName.str(),
-                                        optSuffix,
-                                        /*Optimize=*/false,
-                                        /*CheckDivZero=*/true,
-                                        /*CheckOvershift=*/true);
+  // Use first function as entry point
+  // (Limits KLEE's linking to only modules with used symbols)
+  const auto &module = modules[0];
+  const auto &firstFunction = module->getFunctionList().front();
+
+  Interpreter::ModuleOptions moduleOpts(
+      runtimeDir.str(), firstFunction.getName().str(), optSuffix,
+      /*Optimize=*/false,
+      /*CheckDivZero=*/true,
+      /*CheckOvershift=*/true);
 
   // TODO: WithPOSIXRuntime...?
   // TODO: libc++...?
@@ -212,30 +217,32 @@ void ValuesCollector::prepare(StringRef runtimeDir,
                           "libkleeRuntimeFreestanding" + optSuffix + ".bca");
   std::string errorMsg;
   if (!klee::loadFile(runtimePath.c_str(), ctx, modules, errorMsg))
-    klee_error("error loading freestanding support '%s': %s",
+    klee_error("Error loading freestanding support `%s`: %s",
                runtimePath.c_str(), errorMsg.c_str());
 
   // TODO: Program args and environment...?
 
   Interpreter::InterpreterOptions interpreterOpts;
   interpreterOpts.IndependentFunctions = true;
-  handler = std::make_unique<VCHandler>(outputDir);
+  handler = std::make_unique<VCHandler>();
   interpreter = std::unique_ptr<Interpreter>(
       Interpreter::create(ctx, interpreterOpts, handler.get()));
   assert(interpreter);
   handler->setInterpreter(interpreter.get());
 
+  // Set module directory as initial output directory (for module source output)
+  handler->setOutputDir(moduleDir);
+
   // `interpreter` now acts as though it owns the modules, though it doesn't
   // make that entirely clear since it takes the `unique_ptr` by reference...
   // Need to keep `interpreter` alive to avoid the modules being deleted.
-  auto finalModule = interpreter->setModule(modules, moduleOpts);
-  entryFn = finalModule->getFunction(functionName);
-  if (!entryFn) {
-    klee_error("Entry function '%s' not found in module.", functionName.data());
-  }
+  interpreter->setModule(modules, moduleOpts);
 }
 
-void ValuesCollector::collect(VAs *varsAssignments) {
+void ValuesCollector::collect(const llvm::StringRef functionName,
+                              const llvm::StringRef outputDir,
+                              VAs *varsAssignments) {
+  handler->setOutputDir(outputDir);
   handler->setVarsAssignments(varsAssignments);
 
   // TODO: Externals and globals check...?
@@ -244,7 +251,11 @@ void ValuesCollector::collect(VAs *varsAssignments) {
   // TODO: Seeds...?
   // TODO: Change directory...?
 
-  interpreter->runFunction(entryFn);
+  auto fn = interpreter->getModule()->getFunction(functionName);
+  if (!fn) {
+    klee_error("Function `%s` not found in module", functionName.data());
+  }
+  interpreter->runFunction(fn);
 
   // TODO: End time...?
   // TODO: More stats...?

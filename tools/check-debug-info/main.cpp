@@ -511,7 +511,11 @@ bool checkEquivalence(const Variable &variable, Assignment &currentAssn,
   // These are `static` so that we can save time by creating them only once and
   // (hopefully) reuse their internal cache across executions as well.
   static Solver *coreSolver = createCoreSolver(CoreSolverToUse);
-  static Solver *solver = constructSolverChain(
+  // This solver chain is _not_ safe to reuse.
+  // Caching solvers track pointers to `Array` instances referenced in read
+  // expressions, and those `Array`s are owned by the `ArrayCache` stored in the
+  // `Parser` instance created further down, which can't be reused.
+  Solver *solver = constructSolverChain(
       coreSolver, ALL_QUERIES_SMT2_FILE_NAME, SOLVER_QUERIES_SMT2_FILE_NAME,
       ALL_QUERIES_KQUERY_FILE_NAME, SOLVER_QUERIES_KQUERY_FILE_NAME);
   static ExprBuilder *builder = createDefaultExprBuilder();
@@ -565,6 +569,9 @@ bool checkEquivalence(const Variable &variable, Assignment &currentAssn,
   KLEE_DEBUG(dbgs() << "Query to parse\n" << queryStream.str() << "\n");
 
   const auto queryMB = MemoryBuffer::getMemBuffer(queryStream.str());
+  // `Parser` owns the `Array` instances created during parsing, and can't
+  // currently be shared across parses since you supply the input at creation
+  // time.
   auto *parser =
       Parser::Create("", queryMB.get(), builder, /*clearArray=*/false);
   SmallVector<const Decl *> decls;
@@ -716,10 +723,15 @@ bool buildEncounterToAssignmentMap(const StringRef kind,
   return summary;
 }
 
+SmallString<128> getModuleDir(const StringRef moduleFile) {
+  SmallString<128> moduleDir(moduleFile);
+  sys::path::remove_filename(moduleDir);
+  return moduleDir;
+}
+
 SmallString<128> createOutputDir(const StringRef moduleFile,
                                  const StringRef functionName) {
-  SmallString<128> outputDir(moduleFile);
-  sys::path::remove_filename(outputDir);
+  SmallString<128> outputDir = getModuleDir(moduleFile);
   sys::path::append(outputDir, "debug-info-values", functionName);
   sys::fs::remove_directories(outputDir);
   if (auto e = sys::fs::create_directories(outputDir)) {
@@ -967,40 +979,26 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
   return summary;
 }
 
-bool checkFunction(LLVMContext &ctx, const StringRef runtimeDir,
+bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
                    const StringRef functionName,
                    const std::vector<Diagnostic> &diagnostics) {
   bool summary = true;
 
   outs() << "## Function `" << functionName << "`\n\n";
 
-  // KLEE's interpreter currently deletes the modules after running, so we load
-  // them here for each run.
-  // TODO: Investigate ways to reuse modules
-  auto bothModules = loadModules(ctx);
-
-  // Must run KLEE's module transformations (via the `prepare` call below)
-  // _before_ any static analysis, as otherwise we may end up saving IR values
-  // that are removed.
   SmallString<128> beforeOutputDir = createOutputDir(beforeFile, functionName);
-  ValuesCollector beforeCollector;
-  Module *beforeModule;
+  ValuesCollector &beforeCollector = collectors[0];
+  Module *beforeModule = beforeCollector.getModule();
   Optional<std::unique_ptr<llvm::raw_fd_ostream>> beforeReport;
   {
-    beforeCollector.prepare(runtimeDir, std::move(bothModules[0]), functionName,
-                            beforeOutputDir);
-    beforeModule = beforeCollector.getModule();
     if (tsvReport)
       beforeReport = openOutputFile(beforeOutputDir, "consistency.tsv");
   }
   SmallString<128> afterOutputDir = createOutputDir(afterFile, functionName);
-  ValuesCollector afterCollector;
-  Module *afterModule;
+  ValuesCollector &afterCollector = collectors[1];
+  Module *afterModule = afterCollector.getModule();
   Optional<std::unique_ptr<llvm::raw_fd_ostream>> afterReport;
   {
-    afterCollector.prepare(runtimeDir, std::move(bothModules[1]), functionName,
-                           afterOutputDir);
-    afterModule = afterCollector.getModule();
     if (tsvReport)
       afterReport = openOutputFile(afterOutputDir, "consistency.tsv");
   }
@@ -1082,7 +1080,7 @@ bool checkFunction(LLVMContext &ctx, const StringRef runtimeDir,
 
   // Collect symbolic values for before module
   KLEE_DEBUG(dbgs() << "#### Before values\n\n");
-  beforeCollector.collect(&beforeFlatVAs);
+  beforeCollector.collect(functionName, beforeOutputDir, &beforeFlatVAs);
   KLEE_DEBUG(dbgs() << "\n");
   bool beforeCompleteExecution = beforeCollector.hasCompleteExecution();
   bool beforeFunctionCovered =
@@ -1094,7 +1092,7 @@ bool checkFunction(LLVMContext &ctx, const StringRef runtimeDir,
 
   // Collect symbolic values for after module
   KLEE_DEBUG(dbgs() << "#### After values\n\n");
-  afterCollector.collect(&afterFlatVAs);
+  afterCollector.collect(functionName, afterOutputDir, &afterFlatVAs);
   KLEE_DEBUG(dbgs() << "\n");
   bool afterCompleteExecution = afterCollector.hasCompleteExecution();
   bool afterFunctionCovered = afterCollector.isFunctionCovered(afterDefinition);
@@ -1256,15 +1254,37 @@ int main(int argc, char **argv) {
 
   std::string runtimeDir = getRuntimeLibraryPath(argv[0]);
 
-  const auto beforeDefinitions =
-      make_filter_range(beforeFunctions, functionFilter);
-  size_t currentFunctionNum = 0;
-  for (const Function &beforeDefinition : beforeDefinitions) {
-    summary &=
-        checkFunction(ctx, runtimeDir, beforeDefinition.getName(), diagnostics);
-    ++currentFunctionNum;
-    if (maxFunctions && currentFunctionNum == maxFunctions)
-      break;
+  // Prepare modules for value collection via symbolic execution
+  // A single collector is created for each module to avoid repeating per-module
+  // work for every analysed function.
+  // Must run KLEE's module transformations (via the `prepare` calls below)
+  // _before_ any static analysis, as otherwise we may end up saving IR values
+  // that are removed.
+  SmallVector<ValuesCollector, 2> collectors;
+  ValuesCollector beforeCollector;
+  beforeCollector.prepare(getModuleDir(beforeFile), runtimeDir,
+                          std::move(beforeModule));
+  collectors.push_back(std::move(beforeCollector));
+  ValuesCollector afterCollector;
+  afterCollector.prepare(getModuleDir(afterFile), runtimeDir,
+                         std::move(afterModule));
+  collectors.push_back(std::move(afterCollector));
+
+  {
+    // Regain access to the before module after handing it over above
+    Module *beforeModulePtr = collectors[0].getModule();
+    const auto &beforeFunctions = beforeModulePtr->getFunctionList();
+
+    const auto beforeDefinitions =
+        make_filter_range(beforeFunctions, functionFilter);
+    size_t currentFunctionNum = 0;
+    for (const Function &beforeDefinition : beforeDefinitions) {
+      summary &=
+          checkFunction(collectors, beforeDefinition.getName(), diagnostics);
+      ++currentFunctionNum;
+      if (maxFunctions && currentFunctionNum == maxFunctions)
+        break;
+    }
   }
 
   outs() << "## Summary\n\n";
