@@ -129,7 +129,7 @@ public:
   setModule(std::vector<std::unique_ptr<llvm::Module>> &modules,
             const ModuleOptions &opts) = 0;
 
-  virtual llvm::Module *getModule() const = 0;
+  virtual const llvm::Module *getModule() const = 0;
 
   virtual const InstructionInfoTable &getInstructionInfoTable() const = 0;
 

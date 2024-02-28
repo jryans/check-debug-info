@@ -545,7 +545,7 @@ public:
   llvm::Module *setModule(std::vector<std::unique_ptr<llvm::Module>> &modules,
                           const ModuleOptions &opts) override;
 
-  llvm::Module *getModule() const override {
+  const llvm::Module *getModule() const override {
     return kmodule->module.get();
   }
 

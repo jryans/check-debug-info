@@ -988,7 +988,7 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
 
   SmallString<128> beforeOutputDir = createOutputDir(beforeFile, functionName);
   ValuesCollector &beforeCollector = collectors[0];
-  Module *beforeModule = beforeCollector.getModule();
+  const Module *beforeModule = beforeCollector.getModule();
   Optional<std::unique_ptr<llvm::raw_fd_ostream>> beforeReport;
   {
     if (tsvReport)
@@ -996,7 +996,7 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   }
   SmallString<128> afterOutputDir = createOutputDir(afterFile, functionName);
   ValuesCollector &afterCollector = collectors[1];
-  Module *afterModule = afterCollector.getModule();
+  const Module *afterModule = afterCollector.getModule();
   Optional<std::unique_ptr<llvm::raw_fd_ostream>> afterReport;
   {
     if (tsvReport)
@@ -1272,7 +1272,7 @@ int main(int argc, char **argv) {
 
   {
     // Regain access to the before module after handing it over above
-    Module *beforeModulePtr = collectors[0].getModule();
+    const Module *beforeModulePtr = collectors[0].getModule();
     const auto &beforeFunctions = beforeModulePtr->getFunctionList();
 
     const auto beforeDefinitions =

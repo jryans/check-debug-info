@@ -120,7 +120,7 @@ public:
   void collect(const llvm::StringRef functionName,
                const llvm::StringRef outputDir, VAs *varsAssignments);
 
-  llvm::Module *getModule() const { return interpreter->getModule(); }
+  const llvm::Module *getModule() const { return interpreter->getModule(); }
 
   const klee::InstructionInfoTable &getInstructionInfoTable() const {
     return interpreter->getInstructionInfoTable();
