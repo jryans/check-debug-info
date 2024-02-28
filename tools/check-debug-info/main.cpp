@@ -1033,8 +1033,8 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   // By capturing this info _after_ KLEE's transformation passes (`prepare`
   // above), we get the nice benefit of asm line numbers which match the
   // `assembly.ll`.
-  InstructionInfoTable beforeInstrInfo(*beforeModule);
-  InstructionInfoTable afterInstrInfo(*afterModule);
+  const auto &beforeInstrInfo = beforeCollector.getInstructionInfoTable();
+  const auto &afterInstrInfo = afterCollector.getInstructionInfoTable();
 
   summary &= gatherAssignments("Before", beforeDefinition, beforeInstrInfo,
                                diagnostics, beforeVariables, beforeVToAs);

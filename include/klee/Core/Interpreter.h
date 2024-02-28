@@ -30,6 +30,7 @@ struct Cell;
 struct ExecutionEvent;
 class ExecutionState;
 class Interpreter;
+class InstructionInfoTable;
 struct KFunction;
 struct KInstruction;
 class TreeStreamWriter;
@@ -129,6 +130,8 @@ public:
             const ModuleOptions &opts) = 0;
 
   virtual llvm::Module *getModule() const = 0;
+
+  virtual const InstructionInfoTable &getInstructionInfoTable() const = 0;
 
   // supply a tree stream writer which the interpreter will use
   // to record the concrete path (as a stream of '0' and '1' bytes).

@@ -549,6 +549,10 @@ public:
     return kmodule->module.get();
   }
 
+  const InstructionInfoTable &getInstructionInfoTable() const override {
+    return *kmodule->infos;
+  }
+
   void useSeeds(const std::vector<struct KTest *> *seeds) override {
     usingSeeds = seeds;
   }

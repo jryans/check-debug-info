@@ -17,6 +17,7 @@
 namespace klee {
 struct ExecutionEvent;
 class ExecutionState;
+class InstructionInfoTable;
 struct KInstruction;
 } // namespace klee
 
@@ -120,6 +121,10 @@ public:
                const llvm::StringRef outputDir, VAs *varsAssignments);
 
   llvm::Module *getModule() const { return interpreter->getModule(); }
+
+  const klee::InstructionInfoTable &getInstructionInfoTable() const {
+    return interpreter->getInstructionInfoTable();
+  }
 
   bool isFunctionCovered(const llvm::Function &function) const {
     return interpreter->isFunctionCovered(function);
