@@ -508,8 +508,9 @@ bool gatherAssignments(const StringRef moduleKind, const Function &function,
 
 bool checkEquivalence(const Variable &variable, Assignment &currentAssn,
                       Assignment &otherAssn) {
+  // These are `static` so that we can save time by creating them only once and
+  // (hopefully) reuse their internal cache across executions as well.
   static Solver *coreSolver = createCoreSolver(CoreSolverToUse);
-  // TODO: Do this only once to save time...?
   static Solver *solver = constructSolverChain(
       coreSolver, ALL_QUERIES_SMT2_FILE_NAME, SOLVER_QUERIES_SMT2_FILE_NAME,
       ALL_QUERIES_KQUERY_FILE_NAME, SOLVER_QUERIES_KQUERY_FILE_NAME);
