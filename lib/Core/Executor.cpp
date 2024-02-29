@@ -1808,9 +1808,11 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
       bindLocal(ki, state, argState->read(0, returnTypeSizeBits));
     }
 
-    // TODO: Support variable number of arguments
-    assert(!f->isVarArg() &&
-           "Function to skip has variable number of arguments");
+    // Any additional variadic arguments are currently ignored
+    // TODO: Process variadic pointer arguments similar to the loop below
+    if (DebugExecutionTrace && f->isVarArg())
+      *execTraceText << "Function to skip has variable number of arguments, "
+                     << "ignoring any additional args\n";
 
     // If there are non-const pointer arguments, reset their storage to
     // symbolic (since the callee may have written something)
