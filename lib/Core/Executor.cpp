@@ -4702,8 +4702,6 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     assert(!containedType->isPointerTy() &&
            "Unexpected pointer inside array type");
   }
-  assert((count == 1 || valueType->isIntegerTy()) &&
-         "Unexpected type requesting multiple instances");
 
   // Allocate memory to hold symbolic value
   unsigned storeSizeBytes;
