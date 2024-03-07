@@ -4727,7 +4727,7 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
   if (DebugExecutionTrace) {
     *execTraceText << "Building symbolic value for " << *valueType;
     if (count > 1)
-      *execTraceText << "x" << count;
+      *execTraceText << " x " << count;
     *execTraceText << " " << valueName << " (" << storeSizeBytes * 8 << "b)…\n";
   }
 
@@ -4812,7 +4812,7 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     typeSizeBits *= count;
     *execTraceText << "Built symbolic value for " << valueName;
     if (count > 1)
-      *execTraceText << "x" << count;
+      *execTraceText << " x " << count;
     *execTraceText << ": " << valueState->read(0, typeSizeBits) << "\n";
   }
 
