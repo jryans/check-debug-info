@@ -27,6 +27,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
@@ -188,7 +189,7 @@ bool checkStaticRemovability(const Assignment &assignment) {
 bool addAssignment(const StringRef moduleKind,
                    const InstructionInfoTable &instrInfo,
                    const DbgVariableIntrinsic *varIntrinsic,
-                   const Variable &variable, const StringRef userKind,
+                   const Variable &variable, const Twine &userKind,
                    const Instruction *user, const Values &&producers,
                    VToAs &varToAs) {
   if (producers.empty()) {
@@ -363,6 +364,38 @@ void applyVariableDiagnostics(const StringRef moduleKind,
   }
 }
 
+bool gatherMemoryAssignments(const StringRef moduleKind,
+                             const InstructionInfoTable &instrInfo,
+                             const DbgVariableIntrinsic *varIntrinsic,
+                             const Variable &variable,
+                             const StringRef addressKind, const Value *address,
+                             VToAs &varToAs) {
+  bool summary = true;
+
+  // Follow intermediate operations via worklist
+  SmallVector<const Value *> values = {address};
+  while (!values.empty()) {
+    const Value *value = values.pop_back_val();
+    for (const auto *use : value->users()) {
+      if (const auto *storeInst = dyn_cast<StoreInst>(use)) {
+        // Ensure this is an address operand user
+        // We don't want to track stores of the address in IR-level pointers
+        if (storeInst->getPointerOperand() != value)
+          continue;
+        const Values producers(1, storeInst->getValueOperand());
+        summary &= addAssignment(moduleKind, instrInfo, varIntrinsic, variable,
+                                 "Store to " + addressKind, storeInst,
+                                 std::move(producers), varToAs);
+      } else if (const auto *bitcastInst = dyn_cast<BitCastInst>(use)) {
+        values.push_back(bitcastInst);
+      }
+      // TODO: Follow stores via `getelementptr` operations as well
+    }
+  }
+
+  return summary;
+}
+
 bool gatherAssignments(const StringRef moduleKind,
                        const Instruction &instruction,
                        const InstructionInfoTable &instrInfo,
@@ -404,26 +437,9 @@ bool gatherAssignments(const StringRef moduleKind,
     const Value *address = declareIntrinsic->getAddress();
     if (!address)
       return summary;
-    // Follow intermediate operations via worklist
-    SmallVector<const Value *> values = {address};
-    while (!values.empty()) {
-      const Value *value = values.pop_back_val();
-      for (const auto *use : value->users()) {
-        if (const auto *storeInst = dyn_cast<StoreInst>(use)) {
-          // Ensure this is an address operand user
-          // We don't want to track stores of the address in IR-level pointers
-          if (storeInst->getPointerOperand() != value)
-            continue;
-          const Values producers(1, storeInst->getValueOperand());
-          summary &= addAssignment(moduleKind, instrInfo, declareIntrinsic,
-                                   variable, "Store to declared address of",
-                                   storeInst, std::move(producers), varToAs);
-        } else if (const auto *bitcastInst = dyn_cast<BitCastInst>(use)) {
-          values.push_back(bitcastInst);
-        }
-        // TODO: Follow stores via `getelementptr` operations as well
-      }
-    }
+    summary &= gatherMemoryAssignments(moduleKind, instrInfo, declareIntrinsic,
+                                       variable, "declared address of", address,
+                                       varToAs);
   } else if (const auto *valueIntrinsic =
                  dyn_cast<DbgValueInst>(&instruction)) {
     // Find related instructions via the `dbg.value`'s location ops
@@ -449,27 +465,9 @@ bool gatherAssignments(const StringRef moduleKind,
       // assignment by the common `dbg.value` path above
 
       // Look for any stores to the address as with `dbg.declare`
-      // TODO: Extract common code instead of duplicating
-      // Follow intermediate operations via worklist
-      SmallVector<const Value *> values = {address};
-      while (!values.empty()) {
-        const Value *value = values.pop_back_val();
-        for (const auto *use : address->users()) {
-          if (const auto *storeInst = dyn_cast<StoreInst>(use)) {
-            // Ensure this is an address operand user
-            // We don't want to track stores of the address in IR-level pointers
-            if (storeInst->getPointerOperand() != value)
-              continue;
-            const Values producers(1, storeInst->getValueOperand());
-            summary &= addAssignment(moduleKind, instrInfo, valueIntrinsic,
-                                     variable, "Store to deref'd address of",
-                                     storeInst, std::move(producers), varToAs);
-          } else if (const auto *bitcastInst = dyn_cast<BitCastInst>(use)) {
-            values.push_back(bitcastInst);
-          }
-          // TODO: Follow stores via `getelementptr` operations as well
-        }
-      }
+      summary &= gatherMemoryAssignments(moduleKind, instrInfo, valueIntrinsic,
+                                         variable, "deref'd address of",
+                                         address, varToAs);
     }
   } else {
     llvm_unreachable("Unexpected dbg intrinsic");
