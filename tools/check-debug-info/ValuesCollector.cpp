@@ -161,7 +161,21 @@ ref<Expr> VCHandler::resolvePointers(ExecutionState &state,
     const auto varWidth =
         varIntrinsic->getVariable()->getSizeInBits().getValue();
     ref<Expr> derefExpr = objectState->read(offset, varWidth);
-    KLEE_DEBUG(dbgs() << "  Created deref expr " << derefExpr << "\n");
+    if (auto *derefConcretePointer = dyn_cast<klee::ConstantExpr>(derefExpr)) {
+      if (derefConcretePointer->getWidth() == 64) {
+        // If the pointer derefs to a concrete pointer value, we don't want to
+        // print that, as it will change on every execution.
+        // (The hashed memory name and offset are still stable and usable for
+        // comparison across runs, so this issue only affects logging.)
+        // TODO: Consider resolving this to a named memory object at least for
+        // debugging...?
+        KLEE_DEBUG(dbgs() << "  Created deref expr <concrete pointer>\n");
+      } else {
+        KLEE_DEBUG(dbgs() << "  Created deref expr " << derefExpr << "\n");
+      }
+    } else {
+      KLEE_DEBUG(dbgs() << "  Created deref expr " << derefExpr << "\n");
+    }
 
     // TODO: Produce human-readable expressions instead of hash codes
     auto hash = hash_combine(memory->name, offset->computeHash());
