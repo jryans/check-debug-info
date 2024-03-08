@@ -139,6 +139,7 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &execEvent,
       assert(i == assignment->producedSymbolicValues.size() &&
              "Producers collected out of order");
       KLEE_DEBUG(dbgs() << "Collected value for `" << var.name << "`\n");
+      KLEE_DEBUG(dbgs() << "  Assignment " << *assignment << "\n");
       if (!resolved) {
         symbolicValue = resolvePointers(state, producer, symbolicValue,
                                         assignment->varIntrinsic);
