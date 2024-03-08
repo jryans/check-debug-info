@@ -141,9 +141,8 @@ bool checkStaticRemovability(const Assignment &assignment) {
         if (const auto *storeInst = dyn_cast<StoreInst>(use)) {
           continue;
         } else if (const auto *loadInst = dyn_cast<LoadInst>(use)) {
-          // Ensure this is an address operand user
-          if (loadInst->getPointerOperand() != value)
-            continue;
+          assert(loadInst->getPointerOperand() == value &&
+                 "Address used by non-pointer operand of load");
           hasReadUsers = true;
           break;
         } else if (const auto *bitcastInst = dyn_cast<BitCastInst>(use)) {
@@ -189,31 +188,24 @@ bool checkStaticRemovability(const Assignment &assignment) {
 bool addAssignment(const StringRef moduleKind,
                    const InstructionInfoTable &instrInfo,
                    const DbgVariableIntrinsic *varIntrinsic,
-                   const Variable &variable, const Twine &userKind,
-                   const Instruction *user, const Values &&producers,
+                   const Variable &variable, const Twine &eventKind,
+                   const Instruction *event, const Values &&producers,
                    VToAs &varToAs) {
-  if (producers.empty()) {
-    outs() << "❌ Assignment without inputs, ";
-    outs() << "asm ln " << instrInfo.getInfo(*varIntrinsic).assemblyLine
-           << "\n";
-    outs() << "  " << printInstruction(*varIntrinsic) << "\n";
-    return false;
-  }
+  assert(!producers.empty() && "Assignment without producers");
   for (const auto *producer : producers) {
-    if (!producer) {
-      outs() << "❌ Assignment with empty input, ";
-      outs() << "asm ln " << instrInfo.getInfo(*varIntrinsic).assemblyLine
-             << "\n";
-      outs() << "  " << printInstruction(*varIntrinsic) << "\n";
-      return false;
-    }
+    assert(producer && "Assignment with empty producer");
     assert((isa<Instruction>(*producer) || isa<Argument>(*producer) ||
             isa<GlobalVariable>(*producer) || isa<Constant>(*producer)) &&
            "Unexpected producer type");
   }
+  // Additional checks for definition events (e.g. load from declared address)
+  if (!event->getType()->isVoidTy()) {
+    assert(producers.size() == 1 && "Defintion event with multiple producers");
+    assert(producers[0] == event && "Defintion producer does not match event");
+  }
 
-  KLEE_DEBUG(dbgs() << userKind << " " << variable << ", asm ln "
-                    << instrInfo.getInfo(*user).assemblyLine << "\n");
+  KLEE_DEBUG(dbgs() << eventKind << " " << variable << ", asm ln "
+                    << instrInfo.getInfo(*event).assemblyLine << "\n");
 
   KLEE_DEBUG(dbgs() << "  ");
   if (producers.size() > 1)
@@ -245,7 +237,7 @@ bool addAssignment(const StringRef moduleKind,
 
   // Produced coordinates
 
-  if (const auto debugLoc = user->getDebugLoc()) {
+  if (const auto debugLoc = event->getDebugLoc()) {
     assignment.producedLine = debugLoc.getLine();
     assignment.producedColumn = debugLoc.getCol();
   }
@@ -290,7 +282,7 @@ bool addAssignment(const StringRef moduleKind,
     assignment.producedLine = variable.declLine;
   }
   if (!assignment.producedLine) {
-    outs() << "🔔 " << userKind << " " << variable;
+    outs() << "🔔 " << eventKind << " " << variable;
     outs() << ": missing produced ln, using decl ln\n";
     assignment.producedLine = variable.declLine;
   }
@@ -298,7 +290,7 @@ bool addAssignment(const StringRef moduleKind,
   // Live coordinates
 
   // Look for the next instruction with source coordinates
-  for (const Instruction *inst = user->getNextNode(); inst;
+  for (const Instruction *inst = event->getNextNode(); inst;
        inst = inst->getNextNode()) {
     // Ignore all intrinsics for when looking for live line
     // Some (e.g. lifetime) would otherwise give spurious values
@@ -311,17 +303,17 @@ bool addAssignment(const StringRef moduleKind,
     }
   }
   if (!assignment.liveLine) {
-    outs() << "🔔 " << userKind << " " << variable;
+    outs() << "🔔 " << eventKind << " " << variable;
     outs() << ": missing live ln, using produced ln + 1\n";
     assignment.liveLine = assignment.producedLine + 1;
   }
   if (assignment.liveLine <= assignment.producedLine) {
-    outs() << "🔔 " << userKind << " " << variable;
+    outs() << "🔔 " << eventKind << " " << variable;
     outs() << ": live ln too early, using produced ln + 1\n";
     assignment.liveLine = assignment.producedLine + 1;
   }
   if (assignment.liveLine < variable.declLine) {
-    outs() << "❌ " << userKind << " " << variable;
+    outs() << "❌ " << eventKind << " " << variable;
     outs() << ": " << assignment << " live ln starts before decl\n";
     summary = false;
   }
@@ -330,8 +322,8 @@ bool addAssignment(const StringRef moduleKind,
 
   assignment.varIntrinsic = varIntrinsic;
   assignment.producers = std::move(producers);
-  assignment.user = user;
-  assignment.asmLine = instrInfo.getInfo(*user).assemblyLine;
+  assignment.event = event;
+  assignment.asmLine = instrInfo.getInfo(*event).assemblyLine;
   // Currently we only run this on the before module as we assume the after
   // module is the optimised one. We make use of the removability of before
   // assignments when check after assignments using before as a reference.
@@ -386,6 +378,14 @@ bool gatherMemoryAssignments(const StringRef moduleKind,
         summary &= addAssignment(moduleKind, instrInfo, varIntrinsic, variable,
                                  "Store to " + addressKind, storeInst,
                                  std::move(producers), varToAs);
+      } else if (const auto *loadInst = dyn_cast<LoadInst>(use)) {
+        assert(loadInst->getPointerOperand() == value &&
+               "Address used by non-pointer operand of load");
+        // Load produces the value at the address
+        const Values producers(1, loadInst);
+        summary &= addAssignment(moduleKind, instrInfo, varIntrinsic, variable,
+                                 "Load from " + addressKind, loadInst,
+                                 std::move(producers), varToAs);
       } else if (const auto *bitcastInst = dyn_cast<BitCastInst>(use)) {
         values.push_back(bitcastInst);
       }
@@ -432,7 +432,7 @@ bool gatherAssignments(const StringRef moduleKind,
   }
 
   if (const auto *declareIntrinsic = dyn_cast<DbgDeclareInst>(&instruction)) {
-    // Look for stores to the `dbg.declare`'s address
+    // Look for memory operations that access the `dbg.declare`'s address
     // TODO: Review `LowerDbgDeclare` for more cases to handle
     const Value *address = declareIntrinsic->getAddress();
     if (!address)
@@ -464,7 +464,7 @@ bool gatherAssignments(const StringRef moduleKind,
       // Current value stored at the address will also be captured as an
       // assignment by the common `dbg.value` path above
 
-      // Look for any stores to the address as with `dbg.declare`
+      // Look for memory operations that access this as with `dbg.declare`
       summary &= gatherMemoryAssignments(moduleKind, instrInfo, valueIntrinsic,
                                          variable, "deref'd address of",
                                          address, varToAs);

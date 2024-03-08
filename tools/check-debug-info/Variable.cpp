@@ -98,10 +98,11 @@ ref<Expr> Assignment::evaluate() {
   const auto *variable = varIntrinsic->getVariable();
   ExprBuilder *builder = createDefaultExprBuilder();
 
-  // User is something other than `dbg.value` intrinsic
-  // These are store-like cases where there's no value expression to apply
-  if (!isa<DbgValueInst>(user)) {
-    assert(producers.size() == 1 && "Store-like user with multiple producers");
+  // Event is something other than `dbg.value` intrinsic
+  // These are memory operations where there's no value expression to apply
+  if (!isa<DbgValueInst>(event)) {
+    assert(producers.size() == 1 &&
+           "Memory operation event with multiple producers");
     assert(producedSymbolicValues.size() == 1 &&
            "Symbolic value missing for producer");
     evaluatedSymbolicValue = producedSymbolicValues[0];

@@ -91,10 +91,14 @@ public:
   void incPathsExplored(std::uint32_t num = 1) override {}
 
   void visitBeforeExecution(klee::ExecutionState &state,
-                            klee::ExecutionEvent &event,
+                            klee::ExecutionEvent &execEvent,
                             klee::KInstruction *ki) override;
-  void recordValue(klee::ExecutionState &state, klee::ExecutionEvent &event,
-                   const llvm::Instruction *user, const llvm::Value *producer,
+  void visitAfterExecution(klee::ExecutionState &state,
+                           klee::ExecutionEvent &execEvent,
+                           klee::KInstruction *ki) override;
+  void recordValue(klee::ExecutionState &state, klee::ExecutionEvent &execEvent,
+                   const llvm::Instruction *valueEvent,
+                   const llvm::Value *producer,
                    klee::ref<klee::Expr> symbolicValue);
 
   void processTestCase(const klee::ExecutionState &state, const char *err,

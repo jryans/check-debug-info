@@ -41,20 +41,19 @@ using namespace llvm;
 #define DEBUG_TYPE "values-collector"
 
 void VCHandler::visitBeforeExecution(ExecutionState &state,
-                                     ExecutionEvent &event, KInstruction *ki) {
+                                     ExecutionEvent &execEvent,
+                                     KInstruction *ki) {
   const auto *instruction = ki->inst;
 
   // Stores are visited for writes to `dbg.declare` intrinsic targets
   // `dbg.value` intrinsics are visited for their operands (incl. constants)
-  if (!isa<StoreInst>(*instruction) && !isa<DbgValueInst>(*instruction))
-    return;
 
   if (const auto *storeInstruction = dyn_cast<StoreInst>(instruction)) {
     const Value *producer = storeInstruction->getValueOperand();
     if (!producer)
       return;
     ref<Expr> symbolicValue = interpreter->getOperandCell(state, ki, 0).value;
-    recordValue(state, event, storeInstruction, producer, symbolicValue);
+    recordValue(state, execEvent, storeInstruction, producer, symbolicValue);
   } else if (const auto *valueIntrinsic = dyn_cast<DbgValueInst>(instruction)) {
     for (size_t i = 0, e = valueIntrinsic->getNumVariableLocationOps(); i < e;
          ++i) {
@@ -65,40 +64,64 @@ void VCHandler::visitBeforeExecution(ExecutionState &state,
       // real operands are shifted over by 1.
       ref<Expr> symbolicValue =
           interpreter->getOperandCell(state, ki, i + 1).value;
-      recordValue(state, event, valueIntrinsic, producer, symbolicValue);
+      recordValue(state, execEvent, valueIntrinsic, producer, symbolicValue);
     }
   }
 }
 
-void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &event,
-                            const Instruction *user, const Value *producer,
-                            ref<Expr> symbolicValue) {
-  assert(user && "Assignment user missing");
-  // We currently filter assignments by user (as a way of matching stores).
-  // This works okay for stores since they are `void` type (have no IR result),
-  // so they can't be used as a direct input elsewhere.
+void VCHandler::visitAfterExecution(ExecutionState &state,
+                                    ExecutionEvent &execEvent,
+                                    KInstruction *ki) {
+  const auto *instruction = ki->inst;
+
+  // Loads are visited for reads from `dbg.declare` intrinsic targets
+
+  if (const auto *loadInstruction = dyn_cast<LoadInst>(instruction)) {
+    const Value *producer = loadInstruction;
+    if (!producer)
+      return;
+    ref<Expr> symbolicValue = interpreter->getDestCell(state, ki).value;
+    recordValue(state, execEvent, loadInstruction, producer, symbolicValue);
+  }
+}
+
+void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &execEvent,
+                            const Instruction *valueEvent,
+                            const Value *producer, ref<Expr> symbolicValue) {
+  assert(valueEvent && "Assignment event missing");
+  // We currently filter assignments by event (as a way of matching memory
+  // operations as well as value intrinsics).
+  // This works for both use events (e.g. stores and `dbg.value` intrinsics) and
+  // definition events (e.g. loads) since we have a distinct triggering event to
+  // uniquely match on in all such cases.
+  // (If we instead tried to search for matching _producers_, we'd potentially
+  // have multiple matches in cases where there's e.g. both a `load` and
+  // `dbg.value` using that as a producer.)
   // TODO: Revisit this later, as we may in fact want to _take advantage_ of
   // non-void producers matching multiple assignments as some kind of
   // performance optimisation.
-  assert(user->getType()->isVoidTy() &&
-         "Assignment user unexpectedly has a result");
+  bool isUseEvent = valueEvent->getType()->isVoidTy();
   assert(producer && "Symbolic value producer missing");
   if (!symbolicValue)
     return;
 
-  // Look for assignments matching the user
-  // TODO: Gather all users up front first for faster filtering...?
+  // Look for assignments matching the event
+  // TODO: Gather all events up front first for faster filtering...?
   const auto matchingAssignments =
       make_filter_range(*varsAssignments, [&](VA &pair) {
         const auto *assignment = pair.second;
-        return assignment->user == user;
+        return assignment->event == valueEvent;
       });
 
   bool resolved = false;
 
+  size_t matchCount = 0;
   for (VA &pair : matchingAssignments) {
     const auto &var = pair.first;
     auto *assignment = pair.second;
+    assert(assignment->isUseEvent() == isUseEvent &&
+           "Unexpected assignment use / definition state");
+    ++matchCount;
     // TODO: Track multiple values for an assignment when visiting a block
     // multiple times (if we end up needing that)
     if (assignment->producedSymbolicValues.size() ==
@@ -122,7 +145,7 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &event,
         resolved = true;
       }
       assignment->producedSymbolicValues.push_back(symbolicValue);
-      event.assignment = true;
+      execEvent.assignment = true;
       KLEE_DEBUG(dbgs() << "  " << printValue(*producer) << "\n");
       if (isa<PHINode>(producer)) {
         assignment->incomingBlockIndex = state.incomingBBIndex;
@@ -131,6 +154,8 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &event,
       KLEE_DEBUG(dbgs() << "  " << symbolicValue << "\n");
     }
   }
+
+  assert(matchCount <= 1 && "Multiple matching assignments found");
 }
 
 ref<Expr> VCHandler::resolvePointers(ExecutionState &state,
