@@ -145,6 +145,9 @@ bool checkStaticRemovability(const Assignment &assignment) {
                  "Address used by non-pointer operand of load");
           hasReadUsers = true;
           break;
+        } else if (const auto *callInst = dyn_cast<CallInst>(use)) {
+          hasReadUsers = true;
+          break;
         } else if (const auto *bitcastInst = dyn_cast<BitCastInst>(use)) {
           values.push_back(bitcastInst);
         } else if (const auto *gepInst = dyn_cast<GetElementPtrInst>(use)) {
