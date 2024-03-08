@@ -437,12 +437,6 @@ bool gatherAssignments(const StringRef moduleKind,
                                        varToAs);
   } else if (const auto *valueIntrinsic =
                  dyn_cast<DbgValueInst>(&instruction)) {
-    // Find related instructions via the `dbg.value`'s location ops
-    const Values producers(valueIntrinsic->getValues());
-    summary &= addAssignment(moduleKind, instrInfo, valueIntrinsic, variable,
-                             "Value produced for", valueIntrinsic,
-                             std::move(producers), varToAs);
-
     const auto *expr = valueIntrinsic->getExpression();
     // Check for `DW_OP_deref` address-like value expressions
     if (expr->startsWithDeref()) {
@@ -450,19 +444,24 @@ bool gatherAssignments(const StringRef moduleKind,
       assert(expr->getNumElements() == 1 &&
              "Deref expression with other operations");
       // Treat address input to `dbg.value` with `DW_OP_deref` in the same way
-      // as `dbg.declare`, but also capture the current value as an assignment
+      // as `dbg.declare`. We explicitly _do not_ want to track this address as
+      // a value directly because that's a pointer to the variable we're
+      // interested in, not the variable's own value.
       assert(valueIntrinsic->getNumVariableLocationOps() == 1 &&
              "dbg.value intrinsic as address with multiple inputs");
       const Value *address = valueIntrinsic->getValue();
       if (!address)
         return summary;
-      // Current value stored at the address will also be captured as an
-      // assignment by the common `dbg.value` path above
-
       // Look for memory operations that access this as with `dbg.declare`
       summary &= gatherMemoryAssignments(moduleKind, instrInfo, valueIntrinsic,
                                          variable, "deref'd address of",
                                          address, varToAs);
+    } else {
+      // Find related instructions via the `dbg.value`'s location ops
+      const Values producers(valueIntrinsic->getValues());
+      summary &= addAssignment(moduleKind, instrInfo, valueIntrinsic, variable,
+                               "Value produced for", valueIntrinsic,
+                               std::move(producers), varToAs);
     }
   } else {
     llvm_unreachable("Unexpected dbg intrinsic");
