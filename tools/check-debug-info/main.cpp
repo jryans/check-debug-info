@@ -204,8 +204,8 @@ bool addAssignment(const StringRef moduleKind,
     assert(producers[0] == event && "Defintion producer does not match event");
   }
 
-  KLEE_DEBUG(dbgs() << eventKind << " " << variable << ", asm ln "
-                    << instrInfo.getInfo(*event).assemblyLine << "\n");
+  outs() << eventKind << " " << variable << ", asm ln "
+         << instrInfo.getInfo(*event).assemblyLine << "\n";
 
   KLEE_DEBUG(dbgs() << "  ");
   if (producers.size() > 1)
@@ -282,8 +282,7 @@ bool addAssignment(const StringRef moduleKind,
     assignment.producedLine = variable.declLine;
   }
   if (!assignment.producedLine) {
-    outs() << "🔔 " << eventKind << " " << variable;
-    outs() << ": missing produced ln, using decl ln\n";
+    outs() << "  🔔 Missing produced ln, using decl ln\n";
     assignment.producedLine = variable.declLine;
   }
 
@@ -303,18 +302,15 @@ bool addAssignment(const StringRef moduleKind,
     }
   }
   if (!assignment.liveLine) {
-    outs() << "🔔 " << eventKind << " " << variable;
-    outs() << ": missing live ln, using produced ln + 1\n";
+    outs() << "  🔔 Missing live ln, using produced ln + 1\n";
     assignment.liveLine = assignment.producedLine + 1;
   }
   if (assignment.liveLine <= assignment.producedLine) {
-    outs() << "🔔 " << eventKind << " " << variable;
-    outs() << ": live ln too early, using produced ln + 1\n";
+    outs() << "  🔔 Live ln too early, using produced ln + 1\n";
     assignment.liveLine = assignment.producedLine + 1;
   }
   if (assignment.liveLine < variable.declLine) {
-    outs() << "❌ " << eventKind << " " << variable;
-    outs() << ": " << assignment << " live ln starts before decl\n";
+    outs() << "  ❌ Live ln starts before decl\n";
     summary = false;
   }
 
@@ -415,7 +411,6 @@ bool gatherAssignments(const StringRef moduleKind,
   Variable variable = {diVariable, diVariable->getName(),
                        diVariable->getFilename(), diVariable->getLine()};
   applyVariableDiagnostics(moduleKind, diagnostics, variable);
-  KLEE_DEBUG(dbgs() << moduleKind << " variable " << variable << "\n");
   variables.insert(variable);
 
   // Ignore `undef` intrinsics if we have no other knowledge of this variable
@@ -1024,7 +1019,7 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
 
   outs() << "\n"; // ## Function
 
-  outs() << "### Variables\n\n";
+  outs() << "### Variable events\n\n";
 
   VariablesSet beforeVariables;
   VariablesSet afterVariables;
@@ -1039,15 +1034,21 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   const auto &beforeInstrInfo = beforeCollector.getInstructionInfoTable();
   const auto &afterInstrInfo = afterCollector.getInstructionInfoTable();
 
+  outs() << "#### Before variables\n\n";
+
   summary &= gatherAssignments("Before", beforeDefinition, beforeInstrInfo,
                                diagnostics, beforeVariables, beforeVToAs);
   if (!beforeVariables.empty())
     KLEE_DEBUG(dbgs() << "\n");
 
+  outs() << "#### After variables\n\n";
+
   summary &= gatherAssignments("After", afterDefinition, afterInstrInfo,
                                diagnostics, afterVariables, afterVToAs);
   if (!afterVariables.empty())
     KLEE_DEBUG(dbgs() << "\n");
+
+  outs() << "#### Summary\n\n";
 
   {
     bool match = beforeVariables == afterVariables;
@@ -1107,6 +1108,8 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   // ### Symbolic values
 
   outs() << "### Assignments\n\n";
+
+  outs() << "#### Collation\n\n";
 
   // Sort assignments by encounter order
   // `filterRedundantAssignments` and `buildEncounterToAssignmentMap` assume
