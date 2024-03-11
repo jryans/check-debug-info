@@ -431,7 +431,6 @@ bool gatherAssignments(const StringRef moduleKind,
 
   if (const auto *declareIntrinsic = dyn_cast<DbgDeclareInst>(&instruction)) {
     // Look for memory operations that access the `dbg.declare`'s address
-    // TODO: Review `LowerDbgDeclare` for more cases to handle
     const Value *address = declareIntrinsic->getAddress();
     if (!address)
       return summary;
