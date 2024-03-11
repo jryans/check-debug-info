@@ -99,6 +99,7 @@ typedef unsigned TypeSize;
 #include <iomanip>
 #include <iosfwd>
 #include <limits>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <sys/mman.h>
@@ -4618,18 +4619,25 @@ void Executor::executeMemoryOperation(ExecutionState &state,
   }
 }
 
+std::string getUniqueArrayName(ExecutionState &state, const std::string &name) {
+  // Find a unique name for this array.  First try the original name,
+  // or if that fails try adding a unique identifier.
+  unsigned id = 0;
+  // Replace any characters prohibited from array names
+  std::regex invalidCharacters("[^a-zA-Z0-9._]");
+  std::string uniqueName = std::regex_replace(name, invalidCharacters, "_");
+  while (!state.arrayNames.insert(uniqueName).second) {
+    uniqueName = name + "_" + llvm::utostr(++id);
+  }
+  return uniqueName;
+}
+
 void Executor::executeMakeSymbolic(ExecutionState &state, 
                                    const MemoryObject *mo,
                                    const std::string &name) {
   // Create a new object state for the memory object (instead of a copy).
   if (!replayKTest) {
-    // Find a unique name for this array.  First try the original name,
-    // or if that fails try adding a unique identifier.
-    unsigned id = 0;
-    std::string uniqueName = name;
-    while (!state.arrayNames.insert(uniqueName).second) {
-      uniqueName = name + "_" + llvm::utostr(++id);
-    }
+    std::string uniqueName = getUniqueArrayName(state, name);
     const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
     bindObjectInState(state, mo, false, array);
     state.addSymbolic(mo, array);
@@ -4733,11 +4741,7 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
 
   // Create object state instance from the new memory
   assert(!valueName.str().empty() && "Unexpected empty symbolic value name");
-  unsigned id = 0;
-  std::string uniqueName = valueName.str();
-  while (!state.arrayNames.insert(uniqueName).second) {
-    uniqueName = valueName.str() + "_" + llvm::utostr(++id);
-  }
+  std::string uniqueName = getUniqueArrayName(state, valueName.str());
   const Array *array = arrayCache.CreateArray(uniqueName, valueMemory->size);
   ObjectState *valueState =
       bindObjectInState(state, valueMemory, /*isLocal=*/true, array);
