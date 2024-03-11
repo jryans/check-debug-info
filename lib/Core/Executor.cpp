@@ -4865,6 +4865,9 @@ void Executor::runFunctionSetup(ExecutionState &state) {
   // Reset halt flag (in case a previous function halted)
   setHaltExecution(false);
 
+  // Reset RNG to initial seed for deterministic execution
+  theRNG = RNG();
+
   if (StatsTracker::useStatistics() || userSearcherRequiresMD2U()) {
     statsTracker =
       new StatsTracker(*this,
