@@ -1841,8 +1841,8 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
         const auto *pointeeType = ptrType->getElementType();
         if (pointeeType->isFunctionTy()) {
           if (DebugExecutionTrace)
-            *execTraceText << "Ignoring arg " << argName
-                           << ", has function pointer type\n";
+            *execTraceText << "Ignoring arg `" << argName
+                           << "`, has function pointer type\n";
           continue;
         }
       }
@@ -1872,8 +1872,8 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
       // Ignore read only values
       if (pointerState->readOnly) {
         if (DebugExecutionTrace)
-          *execTraceText << "`" << argName
-                         << "`'s value is read only, ignoring\n";
+          *execTraceText << "Ignoring arg `" << argName
+                         << "`, value is read only\n";
         continue;
       }
 
