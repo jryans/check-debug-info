@@ -1858,8 +1858,14 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
       if (address->isZero())
         continue;
       ObjectPair op;
-      assert(state.addressSpace.resolveOne(address, op) &&
-             "Concrete pointer not bound to MemoryObject");
+      // Ignore external pointers
+      // TODO: Carry external flag through execution to ensure this
+      if (!state.addressSpace.resolveOne(address, op)) {
+        if (DebugExecutionTrace)
+          *execTraceText << "Ignoring arg `" << argName
+                         << "`, appears to be external pointer\n";
+        continue;
+      }
       const MemoryObject *memory = op.first;
       const ObjectState *pointerState = op.second;
 
