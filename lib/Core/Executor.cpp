@@ -1853,7 +1853,14 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
 
       // Find the associated `MemoryObject` for concrete pointers
       auto *address = dyn_cast<klee::ConstantExpr>(arguments[k]);
-      assert(address && "Pointer argument has symbolic address");
+      // Ignore symbolic pointers
+      // TODO: Actually resolve and rewrite these properly
+      if (!address) {
+        if (DebugExecutionTrace)
+          *execTraceText << "Ignoring arg `" << argName
+                         << "`, pointer has symbolic address\n";
+        continue;
+      }
       // Preserve null pointer values
       if (address->isZero())
         continue;
