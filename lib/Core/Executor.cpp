@@ -4849,6 +4849,9 @@ void Executor::enterIndependentFunction(ExecutionState &state, KFunction *kf) {
 /***/
 
 void Executor::runFunctionSetup(ExecutionState &state) {
+  // Reset halt flag (in case a previous function halted)
+  setHaltExecution(false);
+
   if (StatsTracker::useStatistics() || userSearcherRequiresMD2U()) {
     statsTracker =
       new StatsTracker(*this,
