@@ -4865,6 +4865,9 @@ void Executor::runFunctionSetup(ExecutionState &state) {
   // Reset halt flag (in case a previous function halted)
   setHaltExecution(false);
 
+  // Reset complete execution flag
+  completeExecution = true;
+
   // Reset RNG to initial seed for deterministic execution
   theRNG = RNG();
 
