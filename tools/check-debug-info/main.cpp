@@ -1,5 +1,6 @@
 #include "Diagnostics.h"
 #include "Files.h"
+#include "Stats.h"
 #include "ValuesCollector.h"
 #include "Variable.h"
 
@@ -773,7 +774,8 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
                       const VToEncounterToA &otherVToEncToA,
                       const ExecutionValidity &otherValidity,
                       const StringRef functionName,
-                      Optional<std::unique_ptr<llvm::raw_fd_ostream>> &report) {
+                      Optional<std::unique_ptr<llvm::raw_fd_ostream>> &report,
+                      AssignmentStats &stats) {
   bool summary = true;
 
   if (report) {
@@ -980,6 +982,24 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
       **report << "\n";
     }
 
+    stats.total += total;
+    stats.matchingCoords += matchingCoords;
+    stats.matchingValue += matchingValue;
+    // Errors
+    stats.mismatchedCoords += mismatchedCoords;
+    stats.mismatchedValue += mismatchedValue;
+    stats.notEncountered += notEncountered;
+    stats.missing += missing;
+    // Warnings
+    stats.unused += unused;
+    stats.unreachable += unreachable;
+    stats.removable += removable;
+    // Execution
+    stats.functionCovered += (v.functionCovered ? total : 0);
+    stats.executionComplete += (v.executionComplete ? total : 0);
+    stats.withinTimeLimit += (v.withinTimeLimit ? total : 0);
+    stats.withinForkLimit += (v.withinForkLimit ? total : 0);
+
     summary &= match;
   }
 
@@ -988,7 +1008,8 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
 
 bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
                    const StringRef functionName,
-                   const std::vector<Diagnostic> &diagnostics) {
+                   const std::vector<Diagnostic> &diagnostics,
+                   AssignmentStats &stats) {
   bool summary = true;
 
   outs() << "## Function `" << functionName << "`\n\n";
@@ -1169,14 +1190,14 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   outs() << "#### Check before using after as reference\n\n";
   summary &= checkAssignments("Before", beforeVToAs, beforeExecutionValidity,
                               "After", afterVToEncToA, afterExecutionValidity,
-                              functionName, beforeReport);
+                              functionName, beforeReport, stats);
 
   // TODO: Deduplicate pairings already checked by the previous direction
   // Check after assignments against before assignments on the same source line
   outs() << "#### Check after using before as reference\n\n";
   summary &= checkAssignments(
       "After", afterVToAs, afterExecutionValidity, "Before", beforeVToEncToA,
-      beforeExecutionValidity, functionName, afterReport);
+      beforeExecutionValidity, functionName, afterReport, stats);
 
   // End ### Assignments
 
@@ -1288,6 +1309,8 @@ int main(int argc, char **argv) {
                          std::move(afterModule));
   collectors.push_back(std::move(afterCollector));
 
+  AssignmentStats stats = {};
+
   {
     // Regain access to the before module after handing it over above
     const Module *beforeModulePtr = collectors[0].getModule();
@@ -1297,8 +1320,8 @@ int main(int argc, char **argv) {
         make_filter_range(beforeFunctions, functionFilter);
     size_t currentFunctionNum = 0;
     for (const Function &beforeDefinition : beforeDefinitions) {
-      summary &=
-          checkFunction(collectors, beforeDefinition.getName(), diagnostics);
+      summary &= checkFunction(collectors, beforeDefinition.getName(),
+                               diagnostics, stats);
       ++currentFunctionNum;
       if (maxFunctions && currentFunctionNum == maxFunctions)
         break;
@@ -1306,6 +1329,25 @@ int main(int argc, char **argv) {
   }
 
   outs() << "## Summary\n\n";
+
+  outs() << "Assignments:         " << stats.total << "\n";
+  outs() << "  Matching Coords:   " << stats.matchingCoords << "\n";
+  outs() << "  Matching Value:    " << stats.matchingValue << "\n";
+  outs() << "Errors:\n";
+  outs() << "  Mismatched Coords: " << stats.mismatchedCoords << "\n";
+  outs() << "  Mismatched Value:  " << stats.mismatchedValue << "\n";
+  outs() << "  Not Encountered:   " << stats.notEncountered << "\n";
+  outs() << "  Missing:           " << stats.missing << "\n";
+  outs() << "Warnings:\n";
+  outs() << "  Unused:            " << stats.unused << "\n";
+  outs() << "  Unreachable:       " << stats.unreachable << "\n";
+  outs() << "  Removable:         " << stats.removable << "\n";
+  outs() << "Execution:\n";
+  outs() << "  Function Covered:  " << stats.functionCovered << "\n";
+  outs() << "  Complete:          " << stats.executionComplete << "\n";
+  outs() << "  Within Time Limit: " << stats.withinTimeLimit << "\n";
+  outs() << "  Within Fork Limit: " << stats.withinForkLimit << "\n";
+  outs() << "\n";
 
   if (summary) {
     outs() << "🎉 All consistency checks passed\n";
