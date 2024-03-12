@@ -33,7 +33,8 @@
   TTYPE(Ptr, 16U, "ptr.err")                                                   \
   TTYPE(ReadOnly, 17U, "read_only.err")                                        \
   TTYPE(ReportError, 18U, "report_error.err")                                  \
-  MARK(PROGERR, 18U)                                                           \
+  TTYPE(Unreachable, 19U, "unreachable.err")                                   \
+  MARK(PROGERR, 19U)                                                           \
   TTYPE(User, 23U, "user.err")                                                 \
   MARK(USERERR, 23U)                                                           \
   TTYPE(Execution, 25U, "exec.err")                                            \

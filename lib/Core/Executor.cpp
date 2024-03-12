@@ -2696,7 +2696,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     // generate unreachable instructions in cases where it knows the
     // program will crash. So it is effectively a SEGV or internal
     // error.
-    terminateStateOnExecError(state, "reached \"unreachable\" instruction");
+    terminateStateOnError(state, "reached \"unreachable\" instruction",
+                          StateTerminationType::Unreachable);
     break;
 
   case Instruction::Invoke:
@@ -4091,7 +4092,8 @@ void Executor::terminateStateOnError(ExecutionState &state,
     interpreterHandler->processTestCase(state, msg.str().c_str(), file_suffix);
   }
 
-  executionComplete = false;
+  if (terminationType != StateTerminationType::Unreachable)
+    executionComplete = false;
 
   terminateState(state);
 
