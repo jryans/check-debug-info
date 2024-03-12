@@ -939,6 +939,11 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
     outs() << currentKind << " `" << variable.name << "` assns checked using "
            << otherKind.lower() << " as reference\n";
 
+    const auto completeExecutionStr =
+        currentCompleteExecution ? "true" : "false";
+    const auto functionCoveredStr =
+        currentFunctionCovered ? "true" : "false";
+
     outs() << "Variable:            " << variable.name << "\n";
     outs() << "  Assignments:       " << total << "\n";
     outs() << "  Matching Coords:   " << matchingCoords << "\n";
@@ -952,6 +957,9 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
     outs() << "  Unused:            " << unused << "\n";
     outs() << "  Unreachable:       " << unreachable << "\n";
     outs() << "  Removable:         " << removable << "\n";
+    outs() << "Execution:\n";
+    outs() << "  Complete:          " << completeExecutionStr << "\n";
+    outs() << "  Function Covered:  " << functionCoveredStr << "\n";
     outs() << "\n";
 
     if (report) {
@@ -967,8 +975,8 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
       **report << unused << "\t";
       **report << unreachable << "\t";
       **report << removable << "\t";
-      **report << currentCompleteExecution << "\t";
-      **report << currentFunctionCovered;
+      **report << completeExecutionStr << "\t";
+      **report << functionCoveredStr;
       **report << "\n";
     }
 
