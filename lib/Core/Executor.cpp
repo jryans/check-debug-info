@@ -4125,6 +4125,7 @@ bool Executor::isWithinTimeLimit() const {
 }
 
 bool Executor::isWithinForkLimit() const {
+  // TODO: Check whether we actually tried to exceed the limit
   return MaxForks < 0 || stats::forks < (unsigned)MaxForks;
 }
 

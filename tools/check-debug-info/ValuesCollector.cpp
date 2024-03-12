@@ -282,6 +282,10 @@ void ValuesCollector::prepare(const StringRef moduleDir,
 void ValuesCollector::collect(const llvm::StringRef functionName,
                               const llvm::StringRef outputDir,
                               VAs *varsAssignments) {
+  // Stats manager holds onto data after execution
+  // Reset it to get ready for the next run
+  theStatisticManager->reset();
+
   handler->setOutputDir(outputDir);
   handler->setVarsAssignments(varsAssignments);
 
@@ -304,8 +308,4 @@ void ValuesCollector::collect(const llvm::StringRef functionName,
 
   handler->getInfoStream() << "KLEE: done: explored paths = " << 1 + forks
                            << "\n";
-
-  // Stats manager holds onto data after execution
-  // Reset it to get ready for the next run
-  theStatisticManager->reset();
 }
