@@ -122,30 +122,6 @@ bool StatsTracker::useIStats() {
   return OutputIStats;
 }
 
-/// Check for special cases where we statically know an instruction is
-/// uncoverable. Currently the case is an unreachable instruction
-/// following a noreturn call; the instruction is really only there to
-/// satisfy LLVM's termination requirement.
-static bool instructionIsCoverable(Instruction *i) {
-  if (i->getOpcode() == Instruction::Unreachable) {
-    BasicBlock *bb = i->getParent();
-    BasicBlock::iterator it(i);
-    if (it==bb->begin()) {
-      return true;
-    } else {
-      Instruction *prev = &*(--it);
-      if (isa<CallInst>(prev) || isa<InvokeInst>(prev)) {
-        Function *target = getDirectCallTarget(cast<CallBase>(*prev),
-                                               /*moduleIsFullyLinked=*/true);
-        if (target && target->doesNotReturn())
-          return false;
-      }
-    }
-  }
-
-  return true;
-}
-
 std::string sqlite3ErrToStringAndFree(const std::string& prefix , char* sqlite3ErrMsg) {
   std::ostringstream sstream;
   sstream << prefix << sqlite3ErrMsg;
@@ -206,7 +182,7 @@ StatsTracker::StatsTracker(Executor &_executor, std::string _objectFilename,
       if (OutputIStats) {
         unsigned id = ki->info->id;
         theStatisticManager->setIndex(id);
-        if (kf->trackCoverage && instructionIsCoverable(ki->inst))
+        if (kf->trackCoverage)
           ++stats::uncoveredInstructions;
       }
       
@@ -335,7 +311,6 @@ void StatsTracker::stepInstruction(ExecutionState &es) {
       }
     }
 
-    Instruction *inst = es.pc->inst;
     const InstructionInfo &ii = *es.pc->info;
     StackFrame &sf = es.stack.back();
     theStatisticManager->setIndex(ii.id);
@@ -345,7 +320,7 @@ void StatsTracker::stepInstruction(ExecutionState &es) {
     if (es.instsSinceCovNew)
       ++es.instsSinceCovNew;
 
-    if (sf.kf->trackCoverage && instructionIsCoverable(inst)) {
+    if (sf.kf->trackCoverage) {
       if (!theStatisticManager->getIndexedValue(stats::coveredInstructions,
                                                 ii.id)) {
         // Checking for actual stoppoints avoids inconsistencies due
