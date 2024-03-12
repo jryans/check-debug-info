@@ -461,7 +461,7 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
       pathWriter(0), symPathWriter(0), specialFunctionHandler(0),
       timers{time::Span(TimerInterval)}, replayKTest(0), replayPath(0),
       usingSeeds(0), atMemoryLimit(false), inhibitForking(false),
-      haltExecution(false), completeExecution(true), ivcEnabled(false),
+      haltExecution(false), executionComplete(true), ivcEnabled(false),
       debugLogBuffer(debugBufferString) {
   // force deterministic initialization of memory objects
   srand(1);
@@ -870,7 +870,7 @@ void Executor::branch(ExecutionState &state,
   assert(N);
 
   if (!branchingPermitted(state)) {
-    completeExecution = false;
+    executionComplete = false;
     unsigned next = theRNG.getInt32() % N;
     for (unsigned i=0; i<N; ++i) {
       if (i == next) {
@@ -1052,7 +1052,7 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
       assert(!replayKTest && "in replay mode, only one branch can be true.");
       
       if (!branchingPermitted(current)) {
-        completeExecution = false;
+        executionComplete = false;
         TimerStatIncrementer timer(stats::forkTime);
         if (theRNG.getBool()) {
           if (DebugExecutionTrace)
@@ -3988,7 +3988,7 @@ void Executor::terminateStateEarly(ExecutionState &state, const Twine &message,
   }
 
   if (terminationType != StateTerminationType::BranchTargetsCovered)
-    completeExecution = false;
+    executionComplete = false;
 
   terminateState(state);
 }
@@ -4091,7 +4091,7 @@ void Executor::terminateStateOnError(ExecutionState &state,
     interpreterHandler->processTestCase(state, msg.str().c_str(), file_suffix);
   }
 
-  completeExecution = false;
+  executionComplete = false;
 
   terminateState(state);
 
@@ -4112,6 +4112,18 @@ void Executor::terminateStateOnSolverError(ExecutionState &state,
 
 bool Executor::isFunctionCovered(const llvm::Function &function) const {
   return statsTracker->isFunctionCovered(function);
+}
+
+bool Executor::isWithinTimeLimit() const {
+  assert(!MaxInstructions &&
+         "`isWithinTimeLimit` incompatible with `--max-instructions`");
+  assert(ExitOnErrorType.empty() &&
+         "`isWithinTimeLimit` incompatible with `--exit-on-error-type`");
+  return !haltExecution;
+}
+
+bool Executor::isWithinForkLimit() const {
+  return MaxForks < 0 || stats::forks < (unsigned)MaxForks;
 }
 
 // XXX shoot me
@@ -4866,7 +4878,7 @@ void Executor::runFunctionSetup(ExecutionState &state) {
   setHaltExecution(false);
 
   // Reset complete execution flag
-  completeExecution = true;
+  executionComplete = true;
 
   // Reset RNG to initial seed for deterministic execution
   theRNG = RNG();

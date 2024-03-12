@@ -198,7 +198,11 @@ public:
 
   virtual bool isFunctionCovered(const llvm::Function &function) const = 0;
 
-  virtual bool hasCompleteExecution() const = 0;
+  virtual bool isExecutionComplete() const = 0;
+
+  virtual bool isWithinTimeLimit() const = 0;
+
+  virtual bool isWithinForkLimit() const = 0;
 };
 
 } // End klee namespace

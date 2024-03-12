@@ -184,7 +184,7 @@ private:
   bool haltExecution;  
 
   /// Whether execution of all states continued to a normal exit
-  bool completeExecution;
+  bool executionComplete;
 
   /// Whether implied-value concretization is enabled. Currently
   /// false, it is buggy (it needs to validate its writes).
@@ -614,9 +614,13 @@ public:
 
   bool isFunctionCovered(const llvm::Function &function) const override;
 
-  bool hasCompleteExecution() const override {
-    return completeExecution;
+  bool isExecutionComplete() const override {
+    return executionComplete;
   }
+
+  bool isWithinTimeLimit() const override;
+
+  bool isWithinForkLimit() const override;
 };
   
 } // End klee namespace

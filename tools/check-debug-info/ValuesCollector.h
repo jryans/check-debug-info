@@ -111,10 +111,38 @@ private:
                   const llvm::DbgVariableIntrinsic *varIntrinsic);
 };
 
+struct ExecutionValidity {
+  bool functionCovered;
+  bool executionComplete;
+  bool withinTimeLimit;
+  bool withinForkLimit;
+
+  bool isCompleteButUncovered() const {
+    return executionComplete && !functionCovered;
+  }
+
+  const char *functionCoveredStr() const {
+    return functionCovered ? "true" : "false";
+  }
+
+  const char *executionCompleteStr() const {
+    return executionComplete ? "true" : "false";
+  }
+
+  const char *withinTimeLimitStr() const {
+    return withinTimeLimit ? "true" : "false";
+  }
+
+  const char *withinForkLimitStr() const {
+    return withinForkLimit ? "true" : "false";
+  }
+};
+
 class ValuesCollector {
 private:
   std::unique_ptr<VCHandler> handler;
   std::unique_ptr<klee::Interpreter> interpreter;
+  llvm::Function *function;
 
 public:
   void prepare(const llvm::StringRef moduleDir,
@@ -130,12 +158,25 @@ public:
     return interpreter->getInstructionInfoTable();
   }
 
-  bool isFunctionCovered(const llvm::Function &function) const {
-    return interpreter->isFunctionCovered(function);
+  bool isFunctionCovered() const {
+    return interpreter->isFunctionCovered(*function);
   }
 
-  bool hasCompleteExecution() const {
-    return interpreter->hasCompleteExecution();
+  bool isExecutionComplete() const {
+    return interpreter->isExecutionComplete();
+  }
+
+  bool isWithinTimeLimit() const { return interpreter->isWithinTimeLimit(); }
+
+  bool isWithinForkLimit() const { return interpreter->isWithinForkLimit(); }
+
+  ExecutionValidity getExecutionValidity() const {
+    return ExecutionValidity{
+        isFunctionCovered(),
+        isExecutionComplete(),
+        isWithinTimeLimit(),
+        isWithinForkLimit(),
+    };
   }
 };
 

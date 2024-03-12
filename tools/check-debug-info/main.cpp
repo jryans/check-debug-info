@@ -606,8 +606,7 @@ bool checkEquivalence(const Variable &variable, Assignment &currentAssn,
 
 bool filterRedundantAssignments(const StringRef kind,
                                 const VariablesSet &variables, VToAs &varToAs,
-                                const bool completeExecution,
-                                const bool functionCovered) {
+                                const ExecutionValidity &validity) {
   bool summary = true;
 
   for (const auto &variable : variables) {
@@ -624,7 +623,7 @@ bool filterRedundantAssignments(const StringRef kind,
       const auto &otherSymValue = otherAssn.evaluate();
       const auto &currentSymValue = currentAssn.evaluate();
       if (!currentSymValue) {
-        if (completeExecution && !functionCovered) {
+        if (validity.isCompleteButUncovered()) {
           // If execution is complete but some coverage is missing, then relax
           // missing value to unreachable
           outs() << "🔔 " << kind << " " << variable << " "
@@ -641,7 +640,7 @@ bool filterRedundantAssignments(const StringRef kind,
         continue;
       }
       if (!otherSymValue) {
-        if (completeExecution && !functionCovered) {
+        if (validity.isCompleteButUncovered()) {
           // If execution is complete but some coverage is missing, then relax
           // missing value to unreachable
           outs() << "🔔 " << kind << " " << variable << " "
@@ -769,12 +768,10 @@ SmallVector<std::unique_ptr<Module>, 2> loadModules(LLVMContext &ctx) {
 }
 
 bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
-                      const bool currentCompleteExecution,
-                      const bool currentFunctionCovered,
+                      const ExecutionValidity &currentValidity,
                       const StringRef otherKind,
                       const VToEncounterToA &otherVToEncToA,
-                      const bool otherCompleteExecution,
-                      const bool otherFunctionCovered,
+                      const ExecutionValidity &otherValidity,
                       const StringRef functionName,
                       Optional<std::unique_ptr<llvm::raw_fd_ostream>> &report) {
   bool summary = true;
@@ -791,8 +788,10 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
     **report << "Unused\t";
     **report << "Unreachable\t";
     **report << "Removable\t";
-    **report << "Complete Execution\t";
-    **report << "Function Covered";
+    **report << "Function Covered\t";
+    **report << "Execution Complete\t";
+    **report << "Within Time Limit\t";
+    **report << "Within Fork Limit";
     **report << "\n\n";
   }
 
@@ -876,7 +875,7 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
       const auto &currentSymValue = currentAssn.evaluate();
       const auto &otherSymValue = otherAssn.evaluate();
       if (!currentSymValue) {
-        if (currentCompleteExecution && !currentFunctionCovered) {
+        if (currentValidity.isCompleteButUncovered()) {
           // If execution is complete but some coverage is missing, then relax
           // missing value to unreachable
           outs() << "🔔 " << currentKind << " " << variable << " "
@@ -894,7 +893,7 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
         continue;
       }
       if (!otherSymValue) {
-        if (otherCompleteExecution && !otherFunctionCovered) {
+        if (otherValidity.isCompleteButUncovered()) {
           // If execution is complete but some coverage is missing, then relax
           // missing value to unreachable
           outs() << "🔔 " << otherKind << " " << variable << " "
@@ -935,14 +934,11 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
     bool match =
         !mismatchedCoords && !mismatchedValue && !notEncountered && !missing;
 
+    const auto &v = currentValidity;
+
     outs() << (match ? "✅ " : "❌ ");
     outs() << currentKind << " `" << variable.name << "` assns checked using "
            << otherKind.lower() << " as reference\n";
-
-    const auto completeExecutionStr =
-        currentCompleteExecution ? "true" : "false";
-    const auto functionCoveredStr =
-        currentFunctionCovered ? "true" : "false";
 
     outs() << "Variable:            " << variable.name << "\n";
     outs() << "  Assignments:       " << total << "\n";
@@ -958,8 +954,10 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
     outs() << "  Unreachable:       " << unreachable << "\n";
     outs() << "  Removable:         " << removable << "\n";
     outs() << "Execution:\n";
-    outs() << "  Complete:          " << completeExecutionStr << "\n";
-    outs() << "  Function Covered:  " << functionCoveredStr << "\n";
+    outs() << "  Function Covered:  " << v.functionCoveredStr() << "\n";
+    outs() << "  Complete:          " << v.executionCompleteStr() << "\n";
+    outs() << "  Within Time Limit: " << v.withinTimeLimitStr() << "\n";
+    outs() << "  Within Fork Limit: " << v.withinForkLimitStr() << "\n";
     outs() << "\n";
 
     if (report) {
@@ -975,8 +973,10 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
       **report << unused << "\t";
       **report << unreachable << "\t";
       **report << removable << "\t";
-      **report << completeExecutionStr << "\t";
-      **report << functionCoveredStr;
+      **report << v.functionCoveredStr() << "\t";
+      **report << v.executionCompleteStr() << "\t";
+      **report << v.withinTimeLimitStr() << "\t";
+      **report << v.withinForkLimitStr();
       **report << "\n";
     }
 
@@ -1095,24 +1095,21 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   KLEE_DEBUG(dbgs() << "#### Before values\n\n");
   beforeCollector.collect(functionName, beforeOutputDir, &beforeFlatVAs);
   KLEE_DEBUG(dbgs() << "\n");
-  bool beforeCompleteExecution = beforeCollector.hasCompleteExecution();
-  bool beforeFunctionCovered =
-      beforeCollector.isFunctionCovered(beforeDefinition);
-  if (!beforeCompleteExecution)
-    outs() << "🔔 Unable to execute all before program states\n\n";
-  if (!beforeFunctionCovered)
+  const auto beforeExecutionValidity = beforeCollector.getExecutionValidity();
+  if (!beforeExecutionValidity.functionCovered)
     outs() << "🔔 Unable to execute all before instructions\n\n";
+  if (!beforeExecutionValidity.executionComplete)
+    outs() << "🔔 Unable to execute all before program states\n\n";
 
   // Collect symbolic values for after module
   KLEE_DEBUG(dbgs() << "#### After values\n\n");
   afterCollector.collect(functionName, afterOutputDir, &afterFlatVAs);
   KLEE_DEBUG(dbgs() << "\n");
-  bool afterCompleteExecution = afterCollector.hasCompleteExecution();
-  bool afterFunctionCovered = afterCollector.isFunctionCovered(afterDefinition);
-  if (!afterCompleteExecution)
-    outs() << "🔔 Unable to execute all after program states\n\n";
-  if (!afterFunctionCovered)
+  const auto afterExecutionValidity = afterCollector.getExecutionValidity();
+  if (!afterExecutionValidity.functionCovered)
     outs() << "🔔 Unable to execute all after instructions\n\n";
+  if (!afterExecutionValidity.executionComplete)
+    outs() << "🔔 Unable to execute all after program states\n\n";
 
   // ### Symbolic values
 
@@ -1133,12 +1130,10 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   // assignments by execution encounter order.
 
   summary &= filterRedundantAssignments("Before", beforeVariables, beforeVToAs,
-                                        beforeCompleteExecution,
-                                        beforeFunctionCovered);
+                                        beforeExecutionValidity);
 
-  summary &=
-      filterRedundantAssignments("After", afterVariables, afterVToAs,
-                                 afterCompleteExecution, afterFunctionCovered);
+  summary &= filterRedundantAssignments("After", afterVariables, afterVToAs,
+                                        afterExecutionValidity);
 
   // May have removed assignments, rebuild flat VAs
   // TODO: Rethink use of data structures instead...
@@ -1172,18 +1167,16 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
 
   // Check before assignments against after assignments on the same source line
   outs() << "#### Check before using after as reference\n\n";
-  summary &= checkAssignments("Before", beforeVToAs, beforeCompleteExecution,
-                              beforeFunctionCovered, "After", afterVToEncToA,
-                              afterCompleteExecution, afterFunctionCovered,
+  summary &= checkAssignments("Before", beforeVToAs, beforeExecutionValidity,
+                              "After", afterVToEncToA, afterExecutionValidity,
                               functionName, beforeReport);
 
   // TODO: Deduplicate pairings already checked by the previous direction
   // Check after assignments against before assignments on the same source line
   outs() << "#### Check after using before as reference\n\n";
-  summary &= checkAssignments("After", afterVToAs, afterCompleteExecution,
-                              afterFunctionCovered, "Before", beforeVToEncToA,
-                              beforeCompleteExecution, beforeFunctionCovered,
-                              functionName, afterReport);
+  summary &= checkAssignments(
+      "After", afterVToAs, afterExecutionValidity, "Before", beforeVToEncToA,
+      beforeExecutionValidity, functionName, afterReport);
 
   // End ### Assignments
 

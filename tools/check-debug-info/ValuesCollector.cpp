@@ -291,11 +291,11 @@ void ValuesCollector::collect(const llvm::StringRef functionName,
   // TODO: Seeds...?
   // TODO: Change directory...?
 
-  auto fn = interpreter->getModule()->getFunction(functionName);
-  if (!fn) {
+  function = interpreter->getModule()->getFunction(functionName);
+  if (!function) {
     klee_error("Function `%s` not found in module", functionName.data());
   }
-  interpreter->runFunction(fn);
+  interpreter->runFunction(function);
 
   // TODO: End time...?
   // TODO: More stats...?
