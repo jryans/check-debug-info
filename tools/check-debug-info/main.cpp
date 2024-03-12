@@ -49,6 +49,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Format.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
@@ -1330,23 +1331,28 @@ int main(int argc, char **argv) {
 
   outs() << "## Summary\n\n";
 
-  outs() << "Assignments:         " << stats.total << "\n";
-  outs() << "  Matching Coords:   " << stats.matchingCoords << "\n";
-  outs() << "  Matching Value:    " << stats.matchingValue << "\n";
+#define STATS_FIELD(field)                                                     \
+  format("%9u", stats.field)                                                   \
+      << " (" << format("%6.2f", (double)stats.field / stats.total * 100)      \
+      << "%)"
+
+  outs() << "Assignments:         " << format("%9u", stats.total) << "\n";
+  outs() << "  Matching Coords:   " << STATS_FIELD(matchingCoords) << "\n";
+  outs() << "  Matching Value:    " << STATS_FIELD(matchingValue) << "\n";
   outs() << "Errors:\n";
-  outs() << "  Mismatched Coords: " << stats.mismatchedCoords << "\n";
-  outs() << "  Mismatched Value:  " << stats.mismatchedValue << "\n";
-  outs() << "  Not Encountered:   " << stats.notEncountered << "\n";
-  outs() << "  Missing:           " << stats.missing << "\n";
+  outs() << "  Mismatched Coords: " << STATS_FIELD(mismatchedCoords) << "\n";
+  outs() << "  Mismatched Value:  " << STATS_FIELD(mismatchedValue) << "\n";
+  outs() << "  Not Encountered:   " << STATS_FIELD(notEncountered) << "\n";
+  outs() << "  Missing:           " << STATS_FIELD(missing) << "\n";
   outs() << "Warnings:\n";
-  outs() << "  Unused:            " << stats.unused << "\n";
-  outs() << "  Unreachable:       " << stats.unreachable << "\n";
-  outs() << "  Removable:         " << stats.removable << "\n";
+  outs() << "  Unused:            " << STATS_FIELD(unused) << "\n";
+  outs() << "  Unreachable:       " << STATS_FIELD(unreachable) << "\n";
+  outs() << "  Removable:         " << STATS_FIELD(removable) << "\n";
   outs() << "Execution:\n";
-  outs() << "  Function Covered:  " << stats.functionCovered << "\n";
-  outs() << "  Complete:          " << stats.executionComplete << "\n";
-  outs() << "  Within Time Limit: " << stats.withinTimeLimit << "\n";
-  outs() << "  Within Fork Limit: " << stats.withinForkLimit << "\n";
+  outs() << "  Function Covered:  " << STATS_FIELD(functionCovered) << "\n";
+  outs() << "  Complete:          " << STATS_FIELD(executionComplete) << "\n";
+  outs() << "  Within Time Limit: " << STATS_FIELD(withinTimeLimit) << "\n";
+  outs() << "  Within Fork Limit: " << STATS_FIELD(withinForkLimit) << "\n";
   outs() << "\n";
 
   if (summary) {
