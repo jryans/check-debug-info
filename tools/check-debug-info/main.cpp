@@ -1085,7 +1085,8 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
 
   {
     bool match = beforeVariables == afterVariables;
-    outs() << (match ? "✅ " : "🔔 ");
+    summary &= match;
+    outs() << (match ? "✅ " : "❌ ");
     outs() << beforeVariables.size() << " before variables found, ";
     outs() << afterVariables.size() << " after variables found, ";
     auto mismatched = set_difference(beforeVariables, afterVariables);
