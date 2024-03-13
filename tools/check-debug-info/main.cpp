@@ -785,6 +785,7 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
 
   if (report) {
     **report << "Name\t";
+    **report << "Reference\t";
     **report << "Assignments\t";
     **report << "Matching Coords\t";
     **report << "Matching Value\t";
@@ -802,7 +803,18 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
     **report << "\n\n";
   }
 
+  // Count reference assignments
+  size_t refTotal = 0;
+  for (const auto &refVWithEncToA : refVToEncToA) {
+    const auto &refEncToA = refVWithEncToA.second;
+    refTotal += refEncToA.size();
+  }
+  stats.refTotal += refTotal;
+
+  // Check test assignments against reference
   for (auto &testVWithAs : testVToAs) {
+    // JRS: This is all per-variable, so does nothing at all for variables
+    // entirely missing in test...!
     const Variable &variable = testVWithAs.first;
     Assignments &testAssns = const_cast<Assignments &>(testVWithAs.second);
 
@@ -946,6 +958,7 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
            << refKind.lower() << " as reference\n";
 
     outs() << "Variable:            " << variable.name << "\n";
+    outs() << "  Reference:         " << refTotal << "\n";
     outs() << "  Assignments:       " << total << "\n";
     outs() << "  Matching Coords:   " << matchingCoords << "\n";
     outs() << "  Matching Value:    " << matchingValue << "\n";
@@ -968,6 +981,7 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
     if (report) {
       **report << functionName << ", " << variable.name << ", decl "
                << variable.declFile << ":" << variable.declLine << "\t";
+      **report << refTotal << "\t";
       **report << total << "\t";
       **report << matchingCoords << "\t";
       **report << matchingValue << "\t";
@@ -1337,10 +1351,12 @@ int main(int argc, char **argv) {
 
 #define STATS_FIELD(field)                                                     \
   format("%9u", stats.field)                                                   \
-      << " (" << format("%6.2f", (double)stats.field / stats.total * 100)      \
+      << " (" << format("%6.2f", (double)stats.field / stats.refTotal * 100)   \
       << "%)"
 
-  outs() << "Assignments:         " << format("%9u", stats.total) << "\n";
+  outs() << "Assignments:\n";
+  outs() << "  Reference:         " << format("%9u", stats.refTotal) << "\n";
+  outs() << "  Test:              " << STATS_FIELD(total) << "\n";
   outs() << "  Matching Coords:   " << STATS_FIELD(matchingCoords) << "\n";
   outs() << "  Matching Value:    " << STATS_FIELD(matchingValue) << "\n";
   outs() << "Errors:\n";

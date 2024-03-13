@@ -3,6 +3,7 @@
 
 // Summary stats for all assignments encountered
 struct AssignmentStats {
+  unsigned int refTotal;
   unsigned int total;
   unsigned int matchingCoords;
   unsigned int matchingValue;
