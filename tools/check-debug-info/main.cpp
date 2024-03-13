@@ -1177,24 +1177,12 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   summary &= filterRedundantAssignments("After", afterVariables, afterVToAs,
                                         afterExecutionValidity);
 
-  // May have removed assignments, rebuild flat VAs
-  // TODO: Rethink use of data structures instead...
+  // May have removed assignments
+  // Flat VAs would need rebuilding if they were used past this point
+  // For now, just clear them out to avoid surprises
+  // TODO: Rework data structures above to not even use this at all
   beforeFlatVAs.clear();
-  for (auto &varAssignments : beforeVToAs) {
-    const auto &variable = varAssignments.first;
-    for (auto &assn : varAssignments.second) {
-      beforeFlatVAs.push_back({variable, &assn});
-    }
-  }
-  sort(beforeFlatVAs);
   afterFlatVAs.clear();
-  for (auto &varAssignments : afterVToAs) {
-    const auto &variable = varAssignments.first;
-    for (auto &assn : varAssignments.second) {
-      afterFlatVAs.push_back({variable, &assn});
-    }
-  }
-  sort(afterFlatVAs);
 
   VToEncounterToA beforeVToEncToA;
   VToEncounterToA afterVToEncToA;
