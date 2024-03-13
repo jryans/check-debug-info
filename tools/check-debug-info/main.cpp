@@ -789,13 +789,16 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
     **report << "Assignments\t";
     **report << "Matching Coords\t";
     **report << "Matching Value\t";
+    // Errors
     **report << "Mismatched Coords\t";
     **report << "Mismatched Value\t";
     **report << "Not Encountered\t";
     **report << "Missing\t";
+    // Warnings
     **report << "Unused\t";
     **report << "Unreachable\t";
     **report << "Removable\t";
+    // Execution
     **report << "Function Covered\t";
     **report << "Execution Complete\t";
     **report << "Within Time Limit\t";
