@@ -112,6 +112,12 @@ cl::opt<bool> tsvReport(
         "format (default=disabled)"),
     cl::cat(debugInfoCheckCategory));
 
+cl::opt<bool> bothDirections(
+    "both-directions",
+    cl::desc("Check consistency in both directions instead of only checking "
+             "after using before as reference (default=disabled)"),
+    cl::cat(debugInfoCheckCategory));
+
 } // namespace
 
 namespace klee {
@@ -1187,14 +1193,15 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
                                            afterVToEncToA);
   KLEE_DEBUG(dbgs() << "\n");
 
-  // Check before assignments against after assignments on the same source line
-  outs() << "#### Check before using after as reference\n\n";
-  summary &= checkAssignments("Before", beforeVToAs, beforeExecutionValidity,
-                              "After", afterVToEncToA, afterExecutionValidity,
-                              functionName, beforeReport, stats);
+  // Check before assignments against after assignments
+  if (bothDirections) {
+    outs() << "#### Check before using after as reference\n\n";
+    summary &= checkAssignments("Before", beforeVToAs, beforeExecutionValidity,
+                                "After", afterVToEncToA, afterExecutionValidity,
+                                functionName, beforeReport, stats);
+  }
 
-  // TODO: Deduplicate pairings already checked by the previous direction
-  // Check after assignments against before assignments on the same source line
+  // Check after assignments against before assignments
   outs() << "#### Check after using before as reference\n\n";
   summary &= checkAssignments(
       "After", afterVToAs, afterExecutionValidity, "Before", beforeVToEncToA,
