@@ -1775,6 +1775,18 @@ ref<klee::ConstantExpr> Executor::getEhTypeidFor(ref<Expr> type_info) {
   return res;
 }
 
+llvm::SmallString<32> getArgName(const Function *f, const Argument *arg) {
+  llvm::SmallString<32> argName = f->getName();
+  argName += ".";
+  if (!arg->getName().empty()) {
+    argName += arg->getName();
+  } else {
+    argName += "arg";
+    argName += std::to_string(arg->getArgNo());
+  }
+  return argName;
+}
+
 void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
                            std::vector<ref<Expr>> &arguments) {
   Instruction *i = ki->inst;
@@ -1827,14 +1839,7 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
       if (!argType->isPointerTy() || arg->onlyReadsMemory())
         continue;
 
-      llvm::SmallString<32> argName = f->getName();
-      argName += ".";
-      if (!arg->getName().empty()) {
-        argName += arg->getName();
-      } else {
-        argName += "arg";
-        argName += std::to_string(arg->getArgNo());
-      }
+      llvm::SmallString<32> argName = getArgName(f, arg);
 
       // Ignore function pointers
       if (const auto *ptrType = dyn_cast<PointerType>(argType)) {
@@ -4864,8 +4869,9 @@ void Executor::enterIndependentFunction(ExecutionState &state, KFunction *kf) {
 
     // Build a symbolic value for the argument
     auto *argType = arg->getType();
+    llvm::SmallString<32> argName = getArgName(f, arg);
     const ObjectState *argState =
-        buildSymbolicValue(state, arg, argType, arg->getName());
+        buildSymbolicValue(state, arg, argType, argName);
 
     // Rebind argument value as result of load from new symbolic memory
     const unsigned argTypeSizeBits =
