@@ -513,8 +513,8 @@ bool gatherAssignments(const StringRef moduleKind, const Function &function,
   return summary;
 }
 
-bool checkEquivalence(const Variable &variable, Assignment &currentAssn,
-                      Assignment &otherAssn) {
+bool checkEquivalence(const Variable &variable, Assignment &testAssn,
+                      Assignment &refAssn) {
   // These are `static` so that we can save time by creating them only once and
   // (hopefully) reuse their internal cache across executions as well.
   static Solver *coreSolver = createCoreSolver(CoreSolverToUse);
@@ -527,35 +527,33 @@ bool checkEquivalence(const Variable &variable, Assignment &currentAssn,
       ALL_QUERIES_KQUERY_FILE_NAME, SOLVER_QUERIES_KQUERY_FILE_NAME);
   static ExprBuilder *builder = createDefaultExprBuilder();
 
-  const auto &otherSymValue = otherAssn.evaluate();
-  const auto &currentSymValue = currentAssn.evaluate();
+  const auto &refSymValue = refAssn.evaluate();
+  const auto &testSymValue = testAssn.evaluate();
 
   KLEE_DEBUG(dbgs() << "Checking equivalence of " << variable << " "
                     << "from\n"
-                    << "  assn " << currentAssn << "\n"
-                    << "  " << currentAssn.producers << "\n"
-                    << "  " << currentSymValue << "\n"
+                    << "  assn " << testAssn << "\n"
+                    << "  " << testAssn.producers << "\n"
+                    << "  " << testSymValue << "\n"
                     << "and\n"
-                    << "  assn " << otherAssn << "\n"
-                    << "  " << otherAssn.producers << "\n"
-                    << "  " << otherSymValue << "\n");
+                    << "  assn " << refAssn << "\n"
+                    << "  " << refAssn.producers << "\n"
+                    << "  " << refSymValue << "\n");
 
-  assert(currentSymValue->getWidth() == otherSymValue->getWidth() &&
+  assert(testSymValue->getWidth() == refSymValue->getWidth() &&
          "Bit widths don't match");
 
   // When both sides are constants, we compare them directly.
   // Constants don't print their bit widths by default, and the query parser
   // wants at least one side to have an explicit width.
-  if (const auto *currentConstant =
-          dyn_cast<klee::ConstantExpr>(currentSymValue)) {
-    if (const auto *otherConstant =
-            dyn_cast<klee::ConstantExpr>(otherSymValue)) {
-      return currentConstant->getAPValue() == otherConstant->getAPValue();
+  if (const auto *testConstant = dyn_cast<klee::ConstantExpr>(testSymValue)) {
+    if (const auto *refConstant = dyn_cast<klee::ConstantExpr>(refSymValue)) {
+      return testConstant->getAPValue() == refConstant->getAPValue();
     }
   }
 
   // This is conceptually the expression we want to check...
-  ref<Expr> expr = builder->Eq(currentSymValue, otherSymValue);
+  ref<Expr> expr = builder->Eq(testSymValue, refSymValue);
   // ...except any arrays point to separate instance at the moment.
   // For now, the "simplest" way to deduplicate them is to roundtrip through
   // the parser, which will do it for us.
@@ -563,9 +561,9 @@ bool checkEquivalence(const Variable &variable, Assignment &currentAssn,
   std::string queryStr;
   raw_string_ostream queryStream(queryStr);
   std::vector<const Array *> symbolicArrays;
-  findSymbolicObjects(currentSymValue, symbolicArrays);
-  // TODO: Perhaps merge current and other arrays properly
-  findSymbolicObjects(otherSymValue, symbolicArrays);
+  findSymbolicObjects(testSymValue, symbolicArrays);
+  // TODO: Perhaps merge test and reference arrays properly
+  findSymbolicObjects(refSymValue, symbolicArrays);
   for (const auto *array : symbolicArrays) {
     queryStream << "array " << array->getName();
     queryStream << "[" << array->getSize() << "]";
@@ -625,49 +623,49 @@ bool filterRedundantAssignments(const StringRef kind,
                       << " assignments: " << variable << "\n\n");
 
     for (size_t i = 1, e = assignments.size(); i < e; ++i) {
-      auto &currentAssn = assignments[i];
-      auto &otherAssn = assignments[i - 1];
+      auto &testAssn = assignments[i];
+      auto &refAssn = assignments[i - 1];
 
-      const auto &otherSymValue = otherAssn.evaluate();
-      const auto &currentSymValue = currentAssn.evaluate();
-      if (!currentSymValue) {
+      const auto &refSymValue = refAssn.evaluate();
+      const auto &testSymValue = testAssn.evaluate();
+      if (!testSymValue) {
         if (validity.isCompleteButUncovered()) {
           // If execution is complete but some coverage is missing, then relax
           // missing value to unreachable
           outs() << "🔔 " << kind << " " << variable << " "
-                 << "assn " << currentAssn << " has no symbolic value "
+                 << "assn " << testAssn << " has no symbolic value "
                  << "(likely unreachable) "
-                 << "from " << currentAssn.producers << "\n";
+                 << "from " << testAssn.producers << "\n";
         } else {
           outs() << "❌ " << kind << " " << variable << " "
-                 << "assn " << currentAssn << " has no symbolic value "
-                 << "from " << currentAssn.producers << "\n";
+                 << "assn " << testAssn << " has no symbolic value "
+                 << "from " << testAssn.producers << "\n";
           summary = false;
         }
         KLEE_DEBUG(dbgs() << "\n");
         continue;
       }
-      if (!otherSymValue) {
+      if (!refSymValue) {
         if (validity.isCompleteButUncovered()) {
           // If execution is complete but some coverage is missing, then relax
           // missing value to unreachable
           outs() << "🔔 " << kind << " " << variable << " "
-                 << "assn " << otherAssn << " has no symbolic value "
+                 << "assn " << refAssn << " has no symbolic value "
                  << "(likely unreachable) "
-                 << "from " << otherAssn.producers << "\n";
+                 << "from " << refAssn.producers << "\n";
         } else {
           outs() << "❌ " << kind << " " << variable << " "
-                 << "assn " << otherAssn << " has no symbolic value "
-                 << "from " << otherAssn.producers << "\n";
+                 << "assn " << refAssn << " has no symbolic value "
+                 << "from " << refAssn.producers << "\n";
           summary = false;
         }
         KLEE_DEBUG(dbgs() << "\n");
         continue;
       }
 
-      bool result = checkEquivalence(variable, currentAssn, otherAssn);
+      bool result = checkEquivalence(variable, testAssn, refAssn);
       if (result) {
-        KLEE_DEBUG(dbgs() << "🔔 Removing: " << currentAssn << "\n");
+        KLEE_DEBUG(dbgs() << "🔔 Removing: " << testAssn << "\n");
         assignments.erase(assignments.begin() + i);
         --i;
         --e;
@@ -775,11 +773,11 @@ SmallVector<std::unique_ptr<Module>, 2> loadModules(LLVMContext &ctx) {
   return bothModules;
 }
 
-bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
-                      const ExecutionValidity &currentValidity,
-                      const StringRef otherKind,
-                      const VToEncounterToA &otherVToEncToA,
-                      const ExecutionValidity &otherValidity,
+bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
+                      const ExecutionValidity &testValidity,
+                      const StringRef refKind,
+                      const VToEncounterToA &refVToEncToA,
+                      const ExecutionValidity &refValidity,
                       const StringRef functionName,
                       Optional<std::unique_ptr<llvm::raw_fd_ostream>> &report,
                       AssignmentStats &stats) {
@@ -804,132 +802,130 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
     **report << "\n\n";
   }
 
-  for (auto &currentVWithAs : currentVToAs) {
-    const Variable &variable = currentVWithAs.first;
-    Assignments &currentAssns =
-        const_cast<Assignments &>(currentVWithAs.second);
+  for (auto &testVWithAs : testVToAs) {
+    const Variable &variable = testVWithAs.first;
+    Assignments &testAssns = const_cast<Assignments &>(testVWithAs.second);
 
     size_t total = 0;
     size_t matchingValue = 0, mismatchedValue = 0;
     size_t matchingCoords = 0, mismatchedCoords = 0;
-    // TODO: Clarify missing etc. by current vs. other
+    // TODO: Clarify missing etc. by test vs. reference
     size_t notEncountered = 0, missing = 0, unused = 0, unreachable = 0,
            removable = 0;
 
-    for (auto &currentAssn : currentAssns) {
+    for (auto &testAssn : testAssns) {
       ++total;
-      if (!currentAssn.encounter) {
-        outs() << "❌ " << currentKind << " assn " << currentAssn << " for "
+      if (!testAssn.encounter) {
+        outs() << "❌ " << testKind << " assn " << testAssn << " for "
                << variable << " was not encountered during execution\n";
         ++notEncountered;
         KLEE_DEBUG(dbgs() << "\n");
         continue;
       }
-      const auto &otherEncToALookup = otherVToEncToA.find(variable);
-      if (otherEncToALookup == otherVToEncToA.end()) {
-        // Check if all current assignments are removable
-        bool currentVariableRemovable = true;
-        const auto &currentAssnsLookup = currentVToAs.find(variable);
-        if (currentAssnsLookup != currentVToAs.end()) {
-          for (const auto &assn : currentAssnsLookup->second) {
+      const auto &refEncToALookup = refVToEncToA.find(variable);
+      if (refEncToALookup == refVToEncToA.end()) {
+        // Check if all test assignments are removable
+        bool testVariableRemovable = true;
+        const auto &testAssnsLookup = testVToAs.find(variable);
+        if (testAssnsLookup != testVToAs.end()) {
+          for (const auto &assn : testAssnsLookup->second) {
             if (!assn.removable) {
-              currentVariableRemovable = false;
+              testVariableRemovable = false;
               break;
             }
           }
         }
-        if (currentVariableRemovable) {
-          outs() << "🔔 " << otherKind << " encountered assns for (removable) "
+        if (testVariableRemovable) {
+          outs() << "🔔 " << refKind << " encountered assns for (removable) "
                  << variable << " not found\n";
           ++removable;
         } else if (variable.unused) {
-          outs() << "🔔 " << otherKind << " encountered assns for (unused) "
+          outs() << "🔔 " << refKind << " encountered assns for (unused) "
                  << variable << " not found\n";
           ++unused;
         } else {
-          outs() << "❌ " << otherKind << " encountered assns for " << variable
+          outs() << "❌ " << refKind << " encountered assns for " << variable
                  << " not found\n";
           ++missing;
         }
         KLEE_DEBUG(dbgs() << "\n");
         continue;
       }
-      auto &otherEncToA = otherVToEncToA.at(variable);
-      auto otherAssnLookup = otherEncToA.find(*currentAssn.encounter);
-      if (otherAssnLookup == otherEncToA.end()) {
-        if (currentAssn.removable) {
-          outs() << "🔔 " << otherKind << " (removable) encountered assn for "
-                 << variable << " at " << currentAssn << " not found\n";
+      auto &refEncToA = refVToEncToA.at(variable);
+      auto refAssnLookup = refEncToA.find(*testAssn.encounter);
+      if (refAssnLookup == refEncToA.end()) {
+        if (testAssn.removable) {
+          outs() << "🔔 " << refKind << " (removable) encountered assn for "
+                 << variable << " at " << testAssn << " not found\n";
           ++removable;
         } else {
-          outs() << "❌ " << otherKind << " encountered assn for " << variable
-                 << " at " << currentAssn << " not found\n";
+          outs() << "❌ " << refKind << " encountered assn for " << variable
+                 << " at " << testAssn << " not found\n";
           ++missing;
         }
         KLEE_DEBUG(dbgs() << "\n");
         continue;
       }
-      Assignment &otherAssn = *otherAssnLookup->second;
+      Assignment &refAssn = *refAssnLookup->second;
 
       // This does _not_ check symbolic values
-      if (otherAssn.liveLine == currentAssn.liveLine) {
+      if (refAssn.liveLine == testAssn.liveLine) {
         ++matchingCoords;
       } else {
-        outs() << "❌ " << otherKind << " " << variable << " assn " << otherAssn
-               << " coordinates don't match " << currentKind.lower() << " assn "
-               << currentAssn << "\n";
+        outs() << "❌ " << refKind << " " << variable << " assn " << refAssn
+               << " coordinates don't match " << testKind.lower() << " assn "
+               << testAssn << "\n";
         ++mismatchedCoords;
       }
 
-      const auto &currentSymValue = currentAssn.evaluate();
-      const auto &otherSymValue = otherAssn.evaluate();
-      if (!currentSymValue) {
-        if (currentValidity.isCompleteButUncovered()) {
+      const auto &testSymValue = testAssn.evaluate();
+      const auto &refSymValue = refAssn.evaluate();
+      if (!testSymValue) {
+        if (testValidity.isCompleteButUncovered()) {
           // If execution is complete but some coverage is missing, then relax
           // missing value to unreachable
-          outs() << "🔔 " << currentKind << " " << variable << " "
-                 << "assn " << currentAssn << " has no symbolic value "
+          outs() << "🔔 " << testKind << " " << variable << " "
+                 << "assn " << testAssn << " has no symbolic value "
                  << "(likely unreachable) "
-                 << "from " << currentAssn.producers << "\n";
+                 << "from " << testAssn.producers << "\n";
           ++unreachable;
         } else {
-          outs() << "❌ " << currentKind << " " << variable << " "
-                 << "assn " << currentAssn << " has no symbolic value "
-                 << "from " << currentAssn.producers << "\n";
+          outs() << "❌ " << testKind << " " << variable << " "
+                 << "assn " << testAssn << " has no symbolic value "
+                 << "from " << testAssn.producers << "\n";
           ++missing;
         }
         KLEE_DEBUG(dbgs() << "\n");
         continue;
       }
-      if (!otherSymValue) {
-        if (otherValidity.isCompleteButUncovered()) {
+      if (!refSymValue) {
+        if (refValidity.isCompleteButUncovered()) {
           // If execution is complete but some coverage is missing, then relax
           // missing value to unreachable
-          outs() << "🔔 " << otherKind << " " << variable << " "
-                 << "assn " << otherAssn << " has no symbolic value "
+          outs() << "🔔 " << refKind << " " << variable << " "
+                 << "assn " << refAssn << " has no symbolic value "
                  << "(likely unreachable) "
-                 << "from " << otherAssn.producers << "\n";
+                 << "from " << refAssn.producers << "\n";
           ++unreachable;
         } else {
-          outs() << "❌ " << otherKind << " " << variable << " "
-                 << "assn " << otherAssn << " has no symbolic value "
-                 << "from " << otherAssn.producers << "\n";
+          outs() << "❌ " << refKind << " " << variable << " "
+                 << "assn " << refAssn << " has no symbolic value "
+                 << "from " << refAssn.producers << "\n";
           ++missing;
         }
         KLEE_DEBUG(dbgs() << "\n");
         continue;
       }
 
-      bool result = checkEquivalence(variable, currentAssn, otherAssn);
+      bool result = checkEquivalence(variable, testAssn, refAssn);
       if (result) {
-        KLEE_DEBUG(dbgs() << "✅ " << otherKind << " " << variable << " assn "
-                          << otherAssn << " symbolic value matches "
-                          << currentKind.lower() << " assn " << currentAssn
-                          << "\n");
+        KLEE_DEBUG(dbgs() << "✅ " << refKind << " " << variable << " assn "
+                          << refAssn << " symbolic value matches "
+                          << testKind.lower() << " assn " << testAssn << "\n");
       } else {
-        outs() << "❌ " << otherKind << " " << variable << " assn " << otherAssn
-               << " symbolic value doesn't match " << currentKind.lower()
-               << " assn " << currentAssn << "\n";
+        outs() << "❌ " << refKind << " " << variable << " assn " << refAssn
+               << " symbolic value doesn't match " << testKind.lower()
+               << " assn " << testAssn << "\n";
       }
 
       if (result)
@@ -943,11 +939,11 @@ bool checkAssignments(const StringRef currentKind, const VToAs &currentVToAs,
     bool match =
         !mismatchedCoords && !mismatchedValue && !notEncountered && !missing;
 
-    const auto &v = currentValidity;
+    const auto &v = testValidity;
 
     outs() << (match ? "✅ " : "❌ ");
-    outs() << currentKind << " `" << variable.name << "` assns checked using "
-           << otherKind.lower() << " as reference\n";
+    outs() << testKind << " `" << variable.name << "` assns checked using "
+           << refKind.lower() << " as reference\n";
 
     outs() << "Variable:            " << variable.name << "\n";
     outs() << "  Assignments:       " << total << "\n";
