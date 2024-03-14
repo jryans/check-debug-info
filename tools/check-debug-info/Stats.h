@@ -3,27 +3,43 @@
 
 // Summary stats for all assignments encountered
 struct AssignmentStats {
-  unsigned int refTotal;
-  unsigned int total;
-  unsigned int matchingCoords;
-  unsigned int matchingValue;
+  size_t refTotal;
+  size_t testTotal;
 
-  // Errors
-  unsigned int mismatchedCoords;
-  unsigned int mismatchedValue;
-  unsigned int notEncountered;
-  unsigned int missing;
+  // Matching
+  size_t matchingCoords;
+  size_t matchingValue;
+
+  // Consistency Errors
+  size_t mismatchedCoords;
+  size_t mismatchedValue;
+
+  // For non-consistency errors and warnings below,
+  // an assignment is added to only one of these buckets.
+
+  // Availability Errors
+  // Not encountered during reference execution
+  size_t refNotEncountered;
+  // Reference assignment not found in test
+  size_t refNotInTest;
+  // Not encountered during test execution
+  size_t testNotEncountered;
+  // Test assignment not found in reference
+  size_t testNotInRef;
 
   // Warnings
-  unsigned int unused;
-  unsigned int unreachable;
-  unsigned int removable;
+  // Optional diagnostics file claims reference variable is unused
+  size_t unused;
+  // All reference assignments statically removable
+  size_t removable;
+  // Not encountered during (complete but uncovered) reference execution
+  size_t unreachable;
 
   // Execution
-  unsigned int functionCovered;
-  unsigned int executionComplete;
-  unsigned int withinTimeLimit;
-  unsigned int withinForkLimit;
+  size_t functionCovered;
+  size_t executionComplete;
+  size_t withinTimeLimit;
+  size_t withinForkLimit;
 };
 
 #endif // STATS_H

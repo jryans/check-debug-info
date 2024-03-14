@@ -774,8 +774,9 @@ SmallVector<std::unique_ptr<Module>, 2> loadModules(LLVMContext &ctx) {
 }
 
 bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
+                      const VToEncounterToA &testVToEncToA,
                       const ExecutionValidity &testValidity,
-                      const StringRef refKind,
+                      const StringRef refKind, const VToAs &refVToAs,
                       const VToEncounterToA &refVToEncToA,
                       const ExecutionValidity &refValidity,
                       const StringRef functionName,
@@ -786,18 +787,22 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
   if (report) {
     **report << "Name\t";
     **report << "Reference\t";
-    **report << "Assignments\t";
+    **report << "Test\t";
+    // Matching
     **report << "Matching Coords\t";
     **report << "Matching Value\t";
-    // Errors
+    // Consistency Errors
     **report << "Mismatched Coords\t";
     **report << "Mismatched Value\t";
-    **report << "Not Encountered\t";
-    **report << "Missing\t";
+    // Availability Errors
+    **report << "Ref Not Encountered\t";
+    **report << "Ref Not in Test\t";
+    **report << "Test Not Encountered\t";
+    **report << "Test Not in Ref\t";
     // Warnings
     **report << "Unused\t";
-    **report << "Unreachable\t";
     **report << "Removable\t";
+    **report << "Unreachable\t";
     // Execution
     **report << "Function Covered\t";
     **report << "Execution Complete\t";
@@ -806,78 +811,200 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
     **report << "\n\n";
   }
 
-  // Count reference assignments
-  size_t refTotal = 0;
-  for (const auto &refVWithEncToA : refVToEncToA) {
-    const auto &refEncToA = refVWithEncToA.second;
-    refTotal += refEncToA.size();
+  // Look for reference assignments from entire variables not found in test
+  for (const auto &refVWithAs : refVToAs) {
+    const Variable &variable = refVWithAs.first;
+    const auto &refAssns = refVWithAs.second;
+    const auto testVToAsLookup = testVToAs.find(variable);
+    if (testVToAsLookup != testVToAs.end())
+      continue;
+
+    const size_t refTotal = refAssns.size();
+    // Not encountered during reference execution
+    size_t refNotEncountered = 0;
+    // Reference assignment not found in test
+    size_t refNotInTest = 0;
+    // Optional diagnostics file claims reference variable is unused
+    size_t unused = 0;
+    // All reference assignments statically removable
+    size_t removable = 0;
+    // Not encountered during (complete but uncovered) reference execution
+    size_t unreachable = 0;
+    // TODO: Add unreachable and unencountered check here
+
+    // Check if all reference assignments are removable
+    bool refVariableRemovable = true;
+    for (const auto &refAssn : refAssns) {
+      if (!refAssn.removable) {
+        refVariableRemovable = false;
+        break;
+      }
+    }
+    // Reference variable was not found in test
+    if (refVariableRemovable) {
+      outs() << "🔔 " << refKind << " encountered assns for (removable) "
+             << variable << " not found in " << testKind.lower() << "\n";
+      removable = refTotal;
+    } else if (variable.unused) {
+      outs() << "🔔 " << refKind << " encountered assns for (unused) "
+             << variable << " not found in " << testKind.lower() << "\n";
+      unused = refTotal;
+    } else {
+      outs() << "❌ " << refKind << " encountered assns for " << variable
+             << " not found in " << testKind.lower() << "\n";
+      refNotInTest = refTotal;
+    }
+
+    // Issue custom version of each report for this case
+
+    const auto &v = testValidity;
+
+    outs() << "Assignments:         " << variable.name << "\n";
+    outs() << "  Reference:         " << refTotal << "\n";
+    outs() << "  Test:              " << 0 << "\n";
+    outs() << "Matching:\n";
+    outs() << "  Matching Coords:   " << 0 << "\n";
+    outs() << "  Matching Value:    " << 0 << "\n";
+    outs() << "Consistency Errors:\n";
+    outs() << "  Mismatched Coords: " << 0 << "\n";
+    outs() << "  Mismatched Value:  " << 0 << "\n";
+    outs() << "Availability Errors:\n";
+    outs() << "  Ref Not Encount.:  " << refNotEncountered << "\n";
+    outs() << "  Ref Not in Test:   " << refNotInTest << "\n";
+    outs() << "  Test Not Encount.: " << 0 << "\n";
+    outs() << "  Test Not in Ref:   " << 0 << "\n";
+    outs() << "Warnings:\n";
+    outs() << "  Unused:            " << unused << "\n";
+    outs() << "  Removable:         " << removable << "\n";
+    outs() << "  Unreachable:       " << unreachable << "\n";
+    outs() << "Execution:\n";
+    outs() << "  Function Covered:  " << v.functionCoveredStr() << "\n";
+    outs() << "  Complete:          " << v.executionCompleteStr() << "\n";
+    outs() << "  Within Time Limit: " << v.withinTimeLimitStr() << "\n";
+    outs() << "  Within Fork Limit: " << v.withinForkLimitStr() << "\n";
+    outs() << "\n";
+
+    if (report) {
+      **report << functionName << ", " << variable.name << ", decl "
+               << variable.declFile << ":" << variable.declLine << "\t";
+      **report << refTotal << "\t";
+      **report << 0 << "\t";
+      // Matching
+      **report << 0 << "\t";
+      **report << 0 << "\t";
+      // Consistency errors
+      **report << 0 << "\t";
+      **report << 0 << "\t";
+      // Availability errors
+      **report << refNotEncountered << "\t";
+      **report << refNotInTest << "\t";
+      **report << 0 << "\t";
+      **report << 0 << "\t";
+      // Warnings
+      **report << unused << "\t";
+      **report << removable << "\t";
+      **report << unreachable << "\t";
+      // Execution
+      **report << v.functionCoveredStr() << "\t";
+      **report << v.executionCompleteStr() << "\t";
+      **report << v.withinTimeLimitStr() << "\t";
+      **report << v.withinForkLimitStr();
+      **report << "\n";
+    }
+
+    stats.refTotal += refTotal;
+    stats.refNotEncountered += refNotEncountered;
+    stats.refNotInTest += refNotInTest;
+    stats.unused += unused;
+    stats.removable += removable;
+    stats.unreachable += unreachable;
   }
-  stats.refTotal += refTotal;
 
   // Check test assignments against reference
-  for (auto &testVWithAs : testVToAs) {
-    // JRS: This is all per-variable, so does nothing at all for variables
-    // entirely missing in test...!
-    const Variable &variable = testVWithAs.first;
-    Assignments &testAssns = const_cast<Assignments &>(testVWithAs.second);
+  for (auto &refVWithAs : refVToAs) {
+    const Variable &variable = refVWithAs.first;
+    auto &refAssns = const_cast<Assignments &>(refVWithAs.second);
 
-    size_t total = 0;
-    size_t matchingValue = 0, mismatchedValue = 0;
-    size_t matchingCoords = 0, mismatchedCoords = 0;
-    // TODO: Clarify missing etc. by test vs. reference
-    size_t notEncountered = 0, missing = 0, unused = 0, unreachable = 0,
-           removable = 0;
+    // Get test data for this reference variable
+    const auto testVToAsLookup = testVToAs.find(variable);
+    // Missing test variable case is handled separately above
+    if (testVToAsLookup == testVToAs.end())
+      continue;
+    auto &testAssns = const_cast<Assignments &>(testVToAs.at(variable));
 
-    for (auto &testAssn : testAssns) {
-      ++total;
-      if (!testAssn.encounter) {
-        outs() << "❌ " << testKind << " assn " << testAssn << " for "
-               << variable << " was not encountered during execution\n";
-        ++notEncountered;
+    size_t refTotal = refAssns.size(), testTotal = testAssns.size();
+    size_t matchingCoords = 0, matchingValue = 0;
+    size_t mismatchedCoords = 0, mismatchedValue = 0;
+    // Not encountered during reference execution
+    size_t refNotEncountered = 0;
+    // Reference assignment not found in test
+    size_t refNotInTest = 0;
+    // Not encountered during test execution
+    size_t testNotEncountered = 0;
+    // Test assignment not found in reference
+    size_t testNotInRef = 0;
+    // Not encountered during (complete but uncovered) reference execution
+    size_t unreachable = 0;
+
+    // Check for any reference assignment issues
+    for (const auto &refAssn : refAssns) {
+      if (!refAssn.encounter) {
+        if (refValidity.isCompleteButUncovered()) {
+          // If execution is complete but some coverage is missing, then relax
+          // to unreachable
+          outs() << "🔔 " << refKind << " assn " << refAssn << " for "
+                 << variable << " has no symbolic value "
+                 << "(likely unreachable) "
+                 << "from " << refAssn.producers << "\n";
+          ++unreachable;
+        } else {
+          outs() << "❌ " << refKind << " assn " << refAssn << " for "
+                 << variable << " was not encountered during execution\n";
+          ++refNotEncountered;
+        }
         KLEE_DEBUG(dbgs() << "\n");
         continue;
       }
-      const auto &refEncToALookup = refVToEncToA.find(variable);
-      if (refEncToALookup == refVToEncToA.end()) {
-        // Check if all test assignments are removable
-        bool testVariableRemovable = true;
-        const auto &testAssnsLookup = testVToAs.find(variable);
-        if (testAssnsLookup != testVToAs.end()) {
-          for (const auto &assn : testAssnsLookup->second) {
-            if (!assn.removable) {
-              testVariableRemovable = false;
-              break;
-            }
-          }
-        }
-        if (testVariableRemovable) {
-          outs() << "🔔 " << refKind << " encountered assns for (removable) "
-                 << variable << " not found\n";
-          ++removable;
-        } else if (variable.unused) {
-          outs() << "🔔 " << refKind << " encountered assns for (unused) "
-                 << variable << " not found\n";
-          ++unused;
-        } else {
-          outs() << "❌ " << refKind << " encountered assns for " << variable
-                 << " not found\n";
-          ++missing;
-        }
+      // First handle case of no encountered test assignments
+      const auto testEncToALookup = testVToEncToA.find(variable);
+      if (testEncToALookup == testVToEncToA.end()) {
+        outs() << "❌ " << refKind << " encountered assn for " << variable
+               << " at " << refAssn << " not found in " << testKind.lower()
+               << "\n";
+        ++refNotInTest;
+        KLEE_DEBUG(dbgs() << "\n");
+        continue;
+      }
+      // Then check for matching test encounter
+      const auto &testEncToA = testVToEncToA.at(variable);
+      const auto testAssnLookup = testEncToA.find(*refAssn.encounter);
+      if (testAssnLookup == testEncToA.end()) {
+        outs() << "❌ " << refKind << " encountered assn for " << variable
+               << " at " << refAssn << " not found in " << testKind.lower()
+               << "\n";
+        ++refNotInTest;
+        KLEE_DEBUG(dbgs() << "\n");
+        continue;
+      }
+    }
+
+    // Look through each test assignment and check it with reference
+    for (auto &testAssn : testAssns) {
+      if (!testAssn.encounter) {
+        // TODO: Consider adding separate unreachable category for test assns?
+        outs() << "❌ " << testKind << " assn " << testAssn << " for "
+               << variable << " was not encountered during execution\n";
+        ++testNotEncountered;
         KLEE_DEBUG(dbgs() << "\n");
         continue;
       }
       auto &refEncToA = refVToEncToA.at(variable);
       auto refAssnLookup = refEncToA.find(*testAssn.encounter);
       if (refAssnLookup == refEncToA.end()) {
-        if (testAssn.removable) {
-          outs() << "🔔 " << refKind << " (removable) encountered assn for "
-                 << variable << " at " << testAssn << " not found\n";
-          ++removable;
-        } else {
-          outs() << "❌ " << refKind << " encountered assn for " << variable
-                 << " at " << testAssn << " not found\n";
-          ++missing;
-        }
+        outs() << "❌ " << testKind << " encountered assn for " << variable
+               << " at " << testAssn << " not found in " << refKind.lower()
+               << "\n";
+        ++testNotInRef;
         KLEE_DEBUG(dbgs() << "\n");
         continue;
       }
@@ -895,42 +1022,10 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
 
       const auto &testSymValue = testAssn.evaluate();
       const auto &refSymValue = refAssn.evaluate();
-      if (!testSymValue) {
-        if (testValidity.isCompleteButUncovered()) {
-          // If execution is complete but some coverage is missing, then relax
-          // missing value to unreachable
-          outs() << "🔔 " << testKind << " " << variable << " "
-                 << "assn " << testAssn << " has no symbolic value "
-                 << "(likely unreachable) "
-                 << "from " << testAssn.producers << "\n";
-          ++unreachable;
-        } else {
-          outs() << "❌ " << testKind << " " << variable << " "
-                 << "assn " << testAssn << " has no symbolic value "
-                 << "from " << testAssn.producers << "\n";
-          ++missing;
-        }
-        KLEE_DEBUG(dbgs() << "\n");
-        continue;
-      }
-      if (!refSymValue) {
-        if (refValidity.isCompleteButUncovered()) {
-          // If execution is complete but some coverage is missing, then relax
-          // missing value to unreachable
-          outs() << "🔔 " << refKind << " " << variable << " "
-                 << "assn " << refAssn << " has no symbolic value "
-                 << "(likely unreachable) "
-                 << "from " << refAssn.producers << "\n";
-          ++unreachable;
-        } else {
-          outs() << "❌ " << refKind << " " << variable << " "
-                 << "assn " << refAssn << " has no symbolic value "
-                 << "from " << refAssn.producers << "\n";
-          ++missing;
-        }
-        KLEE_DEBUG(dbgs() << "\n");
-        continue;
-      }
+      // Test assignment was encountered, checked above
+      assert(testSymValue && "Test symbolic value unavailable");
+      // Reference assignment was encountered, iterating encounter only map
+      assert(refSymValue && "Reference symbolic value unavailable");
 
       bool result = checkEquivalence(variable, testAssn, refAssn);
       if (result) {
@@ -951,8 +1046,8 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
       KLEE_DEBUG(dbgs() << "\n");
     }
 
-    bool match =
-        !mismatchedCoords && !mismatchedValue && !notEncountered && !missing;
+    bool match = !mismatchedCoords && !mismatchedValue && !refNotEncountered &&
+                 !refNotInTest && !testNotEncountered && !testNotInRef;
 
     const auto &v = testValidity;
 
@@ -960,20 +1055,24 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
     outs() << testKind << " `" << variable.name << "` assns checked using "
            << refKind.lower() << " as reference\n";
 
-    outs() << "Variable:            " << variable.name << "\n";
+    outs() << "Assignments:         " << variable.name << "\n";
     outs() << "  Reference:         " << refTotal << "\n";
-    outs() << "  Assignments:       " << total << "\n";
+    outs() << "  Test:              " << testTotal << "\n";
+    outs() << "Matching:\n";
     outs() << "  Matching Coords:   " << matchingCoords << "\n";
     outs() << "  Matching Value:    " << matchingValue << "\n";
-    outs() << "Errors:\n";
+    outs() << "Consistency Errors:\n";
     outs() << "  Mismatched Coords: " << mismatchedCoords << "\n";
     outs() << "  Mismatched Value:  " << mismatchedValue << "\n";
-    outs() << "  Not Encountered:   " << notEncountered << "\n";
-    outs() << "  Missing:           " << missing << "\n";
+    outs() << "Availability Errors:\n";
+    outs() << "  Ref Not Encount.:  " << refNotEncountered << "\n";
+    outs() << "  Ref Not in Test:   " << refNotInTest << "\n";
+    outs() << "  Test Not Encount.: " << testNotEncountered << "\n";
+    outs() << "  Test Not in Ref:   " << testNotInRef << "\n";
     outs() << "Warnings:\n";
-    outs() << "  Unused:            " << unused << "\n";
+    outs() << "  Unused:            " << 0 << "\n";
+    outs() << "  Removable:         " << 0 << "\n";
     outs() << "  Unreachable:       " << unreachable << "\n";
-    outs() << "  Removable:         " << removable << "\n";
     outs() << "Execution:\n";
     outs() << "  Function Covered:  " << v.functionCoveredStr() << "\n";
     outs() << "  Complete:          " << v.executionCompleteStr() << "\n";
@@ -981,20 +1080,31 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
     outs() << "  Within Fork Limit: " << v.withinForkLimitStr() << "\n";
     outs() << "\n";
 
+    const size_t testAvailErrors = testNotEncountered + testNotInRef;
+    assert(matchingCoords + mismatchedCoords + testAvailErrors == testTotal);
+    assert(matchingValue + mismatchedValue + testAvailErrors == testTotal);
+
     if (report) {
       **report << functionName << ", " << variable.name << ", decl "
                << variable.declFile << ":" << variable.declLine << "\t";
       **report << refTotal << "\t";
-      **report << total << "\t";
+      **report << testTotal << "\t";
+      // Matching
       **report << matchingCoords << "\t";
       **report << matchingValue << "\t";
+      // Consistency Errors
       **report << mismatchedCoords << "\t";
       **report << mismatchedValue << "\t";
-      **report << notEncountered << "\t";
-      **report << missing << "\t";
-      **report << unused << "\t";
+      // Availability Errors
+      **report << refNotEncountered << "\t";
+      **report << refNotInTest << "\t";
+      **report << testNotEncountered << "\t";
+      **report << testNotInRef << "\t";
+      // Warnings
+      **report << 0 << "\t";
+      **report << 0 << "\t";
       **report << unreachable << "\t";
-      **report << removable << "\t";
+      // Execution
       **report << v.functionCoveredStr() << "\t";
       **report << v.executionCompleteStr() << "\t";
       **report << v.withinTimeLimitStr() << "\t";
@@ -1002,23 +1112,28 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
       **report << "\n";
     }
 
-    stats.total += total;
+    stats.refTotal += refTotal;
+    stats.testTotal += testTotal;
+    // Matching
     stats.matchingCoords += matchingCoords;
     stats.matchingValue += matchingValue;
-    // Errors
+    // Consistency errors
     stats.mismatchedCoords += mismatchedCoords;
     stats.mismatchedValue += mismatchedValue;
-    stats.notEncountered += notEncountered;
-    stats.missing += missing;
+    // Availability errors
+    stats.refNotEncountered += refNotEncountered;
+    stats.refNotInTest += refNotInTest;
+    stats.testNotEncountered += testNotEncountered;
+    stats.testNotInRef += testNotInRef;
     // Warnings
-    stats.unused += unused;
+    stats.unused += 0;
+    stats.removable += 0;
     stats.unreachable += unreachable;
-    stats.removable += removable;
     // Execution
-    stats.functionCovered += (v.functionCovered ? total : 0);
-    stats.executionComplete += (v.executionComplete ? total : 0);
-    stats.withinTimeLimit += (v.withinTimeLimit ? total : 0);
-    stats.withinForkLimit += (v.withinForkLimit ? total : 0);
+    stats.functionCovered += (v.functionCovered ? testTotal : 0);
+    stats.executionComplete += (v.executionComplete ? testTotal : 0);
+    stats.withinTimeLimit += (v.withinTimeLimit ? testTotal : 0);
+    stats.withinForkLimit += (v.withinForkLimit ? testTotal : 0);
 
     summary &= match;
   }
@@ -1198,16 +1313,18 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   // Check before assignments against after assignments
   if (bothDirections) {
     outs() << "#### Check before using after as reference\n\n";
-    summary &= checkAssignments("Before", beforeVToAs, beforeExecutionValidity,
-                                "After", afterVToEncToA, afterExecutionValidity,
+    summary &= checkAssignments("Before", beforeVToAs, beforeVToEncToA,
+                                beforeExecutionValidity, "After", afterVToAs,
+                                afterVToEncToA, afterExecutionValidity,
                                 functionName, beforeReport, stats);
   }
 
   // Check after assignments against before assignments
   outs() << "#### Check after using before as reference\n\n";
-  summary &= checkAssignments(
-      "After", afterVToAs, afterExecutionValidity, "Before", beforeVToEncToA,
-      beforeExecutionValidity, functionName, afterReport, stats);
+  summary &= checkAssignments("After", afterVToAs, afterVToEncToA,
+                              afterExecutionValidity, "Before", beforeVToAs,
+                              beforeVToEncToA, beforeExecutionValidity,
+                              functionName, afterReport, stats);
 
   // End ### Assignments
 
@@ -1340,30 +1457,38 @@ int main(int argc, char **argv) {
 
   outs() << "## Summary\n\n";
 
-#define STATS_FIELD(field)                                                     \
+#define STATS_R(field)                                                         \
   format("%9u", stats.field)                                                   \
       << " (" << format("%6.2f", (double)stats.field / stats.refTotal * 100)   \
-      << "%)"
+      << "% of ref )"
+#define STATS_T(field)                                                         \
+  format("%9u", stats.field)                                                   \
+      << " (" << format("%6.2f", (double)stats.field / stats.testTotal * 100)  \
+      << "% of test)"
 
   outs() << "Assignments:\n";
   outs() << "  Reference:         " << format("%9u", stats.refTotal) << "\n";
-  outs() << "  Test:              " << STATS_FIELD(total) << "\n";
-  outs() << "  Matching Coords:   " << STATS_FIELD(matchingCoords) << "\n";
-  outs() << "  Matching Value:    " << STATS_FIELD(matchingValue) << "\n";
-  outs() << "Errors:\n";
-  outs() << "  Mismatched Coords: " << STATS_FIELD(mismatchedCoords) << "\n";
-  outs() << "  Mismatched Value:  " << STATS_FIELD(mismatchedValue) << "\n";
-  outs() << "  Not Encountered:   " << STATS_FIELD(notEncountered) << "\n";
-  outs() << "  Missing:           " << STATS_FIELD(missing) << "\n";
+  outs() << "  Test:              " << STATS_R(testTotal) << "\n";
+  outs() << "Matching:\n";
+  outs() << "  Matching Coords:   " << STATS_R(matchingCoords) << "\n";
+  outs() << "  Matching Value:    " << STATS_R(matchingValue) << "\n";
+  outs() << "Consistency Errors:\n";
+  outs() << "  Mismatched Coords: " << STATS_R(mismatchedCoords) << "\n";
+  outs() << "  Mismatched Value:  " << STATS_R(mismatchedValue) << "\n";
+  outs() << "Availability Errors:\n";
+  outs() << "  Ref Not Encount.:  " << STATS_R(refNotEncountered) << "\n";
+  outs() << "  Ref Not in Test:   " << STATS_R(refNotInTest) << "\n";
+  outs() << "  Test Not Encount.: " << STATS_T(testNotEncountered) << "\n";
+  outs() << "  Test Not in Ref:   " << STATS_T(testNotInRef) << "\n";
   outs() << "Warnings:\n";
-  outs() << "  Unused:            " << STATS_FIELD(unused) << "\n";
-  outs() << "  Unreachable:       " << STATS_FIELD(unreachable) << "\n";
-  outs() << "  Removable:         " << STATS_FIELD(removable) << "\n";
+  outs() << "  Unused:            " << STATS_R(unused) << "\n";
+  outs() << "  Removable:         " << STATS_R(removable) << "\n";
+  outs() << "  Unreachable:       " << STATS_R(unreachable) << "\n";
   outs() << "Execution:\n";
-  outs() << "  Function Covered:  " << STATS_FIELD(functionCovered) << "\n";
-  outs() << "  Complete:          " << STATS_FIELD(executionComplete) << "\n";
-  outs() << "  Within Time Limit: " << STATS_FIELD(withinTimeLimit) << "\n";
-  outs() << "  Within Fork Limit: " << STATS_FIELD(withinForkLimit) << "\n";
+  outs() << "  Function Covered:  " << STATS_T(functionCovered) << "\n";
+  outs() << "  Complete:          " << STATS_T(executionComplete) << "\n";
+  outs() << "  Within Time Limit: " << STATS_T(withinTimeLimit) << "\n";
+  outs() << "  Within Fork Limit: " << STATS_T(withinForkLimit) << "\n";
   outs() << "\n";
 
   if (summary) {
