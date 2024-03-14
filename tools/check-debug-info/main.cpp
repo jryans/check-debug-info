@@ -803,11 +803,16 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
     **report << "Unused\t";
     **report << "Removable\t";
     **report << "Unreachable\t";
-    // Execution
-    **report << "Function Covered\t";
-    **report << "Execution Complete\t";
-    **report << "Within Time Limit\t";
-    **report << "Within Fork Limit";
+    // Reference Execution
+    **report << "Ref Function Covered\t";
+    **report << "Ref Execution Complete\t";
+    **report << "Ref Within Time Limit\t";
+    **report << "Ref Within Fork Limit\t";
+    // Test Execution
+    **report << "Test Function Covered\t";
+    **report << "Test Execution Complete\t";
+    **report << "Test Within Time Limit\t";
+    **report << "Test Within Fork Limit";
     **report << "\n\n";
   }
 
@@ -857,7 +862,8 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
 
     // Issue custom version of each report for this case
 
-    const auto &v = testValidity;
+    const auto &rv = refValidity;
+    const auto &tv = testValidity;
 
     outs() << "Assignments:         " << variable.name << "\n";
     outs() << "  Reference:         " << refTotal << "\n";
@@ -877,11 +883,16 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
     outs() << "  Unused:            " << unused << "\n";
     outs() << "  Removable:         " << removable << "\n";
     outs() << "  Unreachable:       " << unreachable << "\n";
-    outs() << "Execution:\n";
-    outs() << "  Function Covered:  " << v.functionCoveredStr() << "\n";
-    outs() << "  Complete:          " << v.executionCompleteStr() << "\n";
-    outs() << "  Within Time Limit: " << v.withinTimeLimitStr() << "\n";
-    outs() << "  Within Fork Limit: " << v.withinForkLimitStr() << "\n";
+    outs() << "Reference Execution:\n";
+    outs() << "  Function Covered:  " << rv.functionCoveredStr() << "\n";
+    outs() << "  Complete:          " << rv.executionCompleteStr() << "\n";
+    outs() << "  Within Time Limit: " << rv.withinTimeLimitStr() << "\n";
+    outs() << "  Within Fork Limit: " << rv.withinForkLimitStr() << "\n";
+    outs() << "Test Execution:\n";
+    outs() << "  Function Covered:  " << tv.functionCoveredStr() << "\n";
+    outs() << "  Complete:          " << tv.executionCompleteStr() << "\n";
+    outs() << "  Within Time Limit: " << tv.withinTimeLimitStr() << "\n";
+    outs() << "  Within Fork Limit: " << tv.withinForkLimitStr() << "\n";
     outs() << "\n";
 
     if (report) {
@@ -904,11 +915,16 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
       **report << unused << "\t";
       **report << removable << "\t";
       **report << unreachable << "\t";
-      // Execution
-      **report << v.functionCoveredStr() << "\t";
-      **report << v.executionCompleteStr() << "\t";
-      **report << v.withinTimeLimitStr() << "\t";
-      **report << v.withinForkLimitStr();
+      // Reference Execution
+      **report << rv.functionCoveredStr() << "\t";
+      **report << rv.executionCompleteStr() << "\t";
+      **report << rv.withinTimeLimitStr() << "\t";
+      **report << rv.withinForkLimitStr() << "\t";
+      // Test Execution
+      **report << tv.functionCoveredStr() << "\t";
+      **report << tv.executionCompleteStr() << "\t";
+      **report << tv.withinTimeLimitStr() << "\t";
+      **report << tv.withinForkLimitStr();
       **report << "\n";
     }
 
@@ -1049,7 +1065,8 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
     bool match = !mismatchedCoords && !mismatchedValue && !refNotEncountered &&
                  !refNotInTest && !testNotEncountered && !testNotInRef;
 
-    const auto &v = testValidity;
+    const auto &rv = refValidity;
+    const auto &tv = testValidity;
 
     outs() << (match ? "✅ " : "❌ ");
     outs() << testKind << " `" << variable.name << "` assns checked using "
@@ -1073,11 +1090,16 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
     outs() << "  Unused:            " << 0 << "\n";
     outs() << "  Removable:         " << 0 << "\n";
     outs() << "  Unreachable:       " << unreachable << "\n";
-    outs() << "Execution:\n";
-    outs() << "  Function Covered:  " << v.functionCoveredStr() << "\n";
-    outs() << "  Complete:          " << v.executionCompleteStr() << "\n";
-    outs() << "  Within Time Limit: " << v.withinTimeLimitStr() << "\n";
-    outs() << "  Within Fork Limit: " << v.withinForkLimitStr() << "\n";
+    outs() << "Reference Execution:\n";
+    outs() << "  Function Covered:  " << rv.functionCoveredStr() << "\n";
+    outs() << "  Complete:          " << rv.executionCompleteStr() << "\n";
+    outs() << "  Within Time Limit: " << rv.withinTimeLimitStr() << "\n";
+    outs() << "  Within Fork Limit: " << rv.withinForkLimitStr() << "\n";
+    outs() << "Test Execution:\n";
+    outs() << "  Function Covered:  " << tv.functionCoveredStr() << "\n";
+    outs() << "  Complete:          " << tv.executionCompleteStr() << "\n";
+    outs() << "  Within Time Limit: " << tv.withinTimeLimitStr() << "\n";
+    outs() << "  Within Fork Limit: " << tv.withinForkLimitStr() << "\n";
     outs() << "\n";
 
     const size_t testAvailErrors = testNotEncountered + testNotInRef;
@@ -1104,11 +1126,16 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
       **report << 0 << "\t";
       **report << 0 << "\t";
       **report << unreachable << "\t";
-      // Execution
-      **report << v.functionCoveredStr() << "\t";
-      **report << v.executionCompleteStr() << "\t";
-      **report << v.withinTimeLimitStr() << "\t";
-      **report << v.withinForkLimitStr();
+      // Reference Execution
+      **report << rv.functionCoveredStr() << "\t";
+      **report << rv.executionCompleteStr() << "\t";
+      **report << rv.withinTimeLimitStr() << "\t";
+      **report << rv.withinForkLimitStr() << "\t";
+      // Test Execution
+      **report << tv.functionCoveredStr() << "\t";
+      **report << tv.executionCompleteStr() << "\t";
+      **report << tv.withinTimeLimitStr() << "\t";
+      **report << tv.withinForkLimitStr();
       **report << "\n";
     }
 
@@ -1129,11 +1156,16 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
     stats.unused += 0;
     stats.removable += 0;
     stats.unreachable += unreachable;
-    // Execution
-    stats.functionCovered += (v.functionCovered ? testTotal : 0);
-    stats.executionComplete += (v.executionComplete ? testTotal : 0);
-    stats.withinTimeLimit += (v.withinTimeLimit ? testTotal : 0);
-    stats.withinForkLimit += (v.withinForkLimit ? testTotal : 0);
+    // Reference Execution
+    stats.refFunctionCovered += (rv.functionCovered ? refTotal : 0);
+    stats.refExecutionComplete += (rv.executionComplete ? refTotal : 0);
+    stats.refWithinTimeLimit += (rv.withinTimeLimit ? refTotal : 0);
+    stats.refWithinForkLimit += (rv.withinForkLimit ? refTotal : 0);
+    // Test Execution
+    stats.testFunctionCovered += (tv.functionCovered ? testTotal : 0);
+    stats.testExecutionComplete += (tv.executionComplete ? testTotal : 0);
+    stats.testWithinTimeLimit += (tv.withinTimeLimit ? testTotal : 0);
+    stats.testWithinForkLimit += (tv.withinForkLimit ? testTotal : 0);
 
     summary &= match;
   }
@@ -1484,11 +1516,16 @@ int main(int argc, char **argv) {
   outs() << "  Unused:            " << STATS_R(unused) << "\n";
   outs() << "  Removable:         " << STATS_R(removable) << "\n";
   outs() << "  Unreachable:       " << STATS_R(unreachable) << "\n";
-  outs() << "Execution:\n";
-  outs() << "  Function Covered:  " << STATS_T(functionCovered) << "\n";
-  outs() << "  Complete:          " << STATS_T(executionComplete) << "\n";
-  outs() << "  Within Time Limit: " << STATS_T(withinTimeLimit) << "\n";
-  outs() << "  Within Fork Limit: " << STATS_T(withinForkLimit) << "\n";
+  outs() << "Reference Execution:\n";
+  outs() << "  Function Covered:  " << STATS_R(refFunctionCovered) << "\n";
+  outs() << "  Complete:          " << STATS_R(refExecutionComplete) << "\n";
+  outs() << "  Within Time Limit: " << STATS_R(refWithinTimeLimit) << "\n";
+  outs() << "  Within Fork Limit: " << STATS_R(refWithinForkLimit) << "\n";
+  outs() << "Test Execution:\n";
+  outs() << "  Function Covered:  " << STATS_T(testFunctionCovered) << "\n";
+  outs() << "  Complete:          " << STATS_T(testExecutionComplete) << "\n";
+  outs() << "  Within Time Limit: " << STATS_T(testWithinTimeLimit) << "\n";
+  outs() << "  Within Fork Limit: " << STATS_T(testWithinForkLimit) << "\n";
   outs() << "\n";
 
   if (summary) {

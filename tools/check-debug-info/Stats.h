@@ -35,11 +35,17 @@ struct AssignmentStats {
   // Not encountered during (complete but uncovered) reference execution
   size_t unreachable;
 
-  // Execution
-  size_t functionCovered;
-  size_t executionComplete;
-  size_t withinTimeLimit;
-  size_t withinForkLimit;
+  // Reference Execution
+  size_t refFunctionCovered;
+  size_t refExecutionComplete;
+  size_t refWithinTimeLimit;
+  size_t refWithinForkLimit;
+
+  // Test Execution
+  size_t testFunctionCovered;
+  size_t testExecutionComplete;
+  size_t testWithinTimeLimit;
+  size_t testWithinForkLimit;
 };
 
 #endif // STATS_H
