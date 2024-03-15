@@ -1413,8 +1413,8 @@ int main(int argc, char **argv) {
   const auto &afterFunctions = afterModule->getFunctionList();
 
   if (!functionName.empty())
-    outs() << "🔔 Only checking function named " << functionName
-           << " (`--function-name`)\n";
+    outs() << "🔔 Only checking function named `" << functionName
+           << "` (`--function-name`)\n";
 
   auto functionFilter = [](const Function &f) {
     if (f.isDeclaration())
