@@ -846,14 +846,19 @@ bool Executor::branchingPermitted(const ExecutionState &state) const {
       inhibitForking ||
       (MaxForks >= 0 && stats::forks >= (unsigned)MaxForks)) {
 
+    const char *msg;
     if (MaxMemoryInhibit && atMemoryLimit)
-      klee_warning_once(0, "skipping fork (memory cap exceeded)");
+      msg = "Skipping fork (memory cap exceeded)";
     else if (state.forkDisabled)
-      klee_warning_once(0, "skipping fork (fork disabled on current path)");
+      msg = "Skipping fork (fork disabled on current path)";
     else if (inhibitForking)
-      klee_warning_once(0, "skipping fork (fork disabled globally)");
+      msg = "Skipping fork (fork disabled globally)";
     else
-      klee_warning_once(0, "skipping fork (max-forks reached)");
+      msg = "Skipping fork (max-forks reached)";
+
+    klee_warning("%s", msg);
+    if (DebugExecutionTrace)
+      *execTraceText << msg << "\n";
 
     return false;
   }
