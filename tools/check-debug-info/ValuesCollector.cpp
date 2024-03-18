@@ -143,6 +143,10 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &execEvent,
     if (isa<LoadInst>(valueEvent) || isa<StoreInst>(valueEvent)) {
       if (!assignment->meaningful)
         continue;
+      // `dbg.declare` is global for the function and sometimes appears after
+      // the first related memory operation, so allow all such assignments.
+      if (isa<DbgDeclareInst>(assignment->varIntrinsic))
+        goto meaningful;
       auto lastVarIntrinsicLookup = lastVarIntrinsics.find(var);
       if (lastVarIntrinsicLookup == lastVarIntrinsics.end())
         assignment->meaningful = false;
@@ -159,6 +163,7 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &execEvent,
       }
     }
 
+meaningful:
     // TODO: Track multiple values for an assignment when visiting a block
     // multiple times (if we end up needing that)
     if (assignment->producedSymbolicValues.size() ==
