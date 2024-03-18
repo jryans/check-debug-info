@@ -63,6 +63,7 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -371,6 +372,20 @@ bool gatherMemoryAssignments(const StringRef moduleKind,
                              VToAs &varToAs) {
   bool summary = true;
 
+  // TODO: Could store this on `Variable` if it were unique
+  // TODO: Make this temporary to avoid holding onto memory here
+  // Only process each address once per variable
+  using AddressesSet = std::set<const Value *>;
+  static std::map<const Variable, AddressesSet> varToAddressesSeen;
+  auto &addressesSeen =
+      varToAddressesSeen.emplace(std::make_pair(variable, AddressesSet()))
+          .first->second;
+  if (!addressesSeen.insert(address).second) {
+    KLEE_DEBUG(dbgs() << "Address " << printValue(*address) << " for variable "
+                      << variable << " already seen, skipping\n");
+    return summary;
+  }
+
   // Follow intermediate operations via worklist
   SmallVector<const Value *> values = {address};
   while (!values.empty()) {
@@ -419,6 +434,8 @@ bool gatherAssignments(const StringRef moduleKind,
 
   const DILocalVariable *diVariable = varIntrinsic->getVariable();
   assert(diVariable && "Variable intrinsic without a variable");
+  // TODO: Rework `Variable` to be unique so that variable-related data can be
+  // stored there and shared across various steps.
   Variable variable = {diVariable, diVariable->getName(),
                        diVariable->getFilename(), diVariable->getLine()};
   applyVariableDiagnostics(moduleKind, diagnostics, variable);

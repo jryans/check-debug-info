@@ -62,6 +62,7 @@ private:
   std::unique_ptr<llvm::raw_fd_ostream> infoStream;
   klee::Interpreter *interpreter;
   VAs *varsAssignments;
+  // TODO: Could store this on `Variable` if it were unique
   std::map<Variable, unsigned int> nextEncounters;
 
 public:
