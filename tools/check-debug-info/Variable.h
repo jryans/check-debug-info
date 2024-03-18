@@ -128,6 +128,10 @@ struct Assignment {
   // Whether assignment appears to be removable by optimisation
   // TODO: Track different removability reasons separately...?
   bool removable = false;
+  // Whether assignment is debug meaningful
+  // During execution, memory assignments only remain meaningful if the last
+  // seen variable intrinsic is implicit (referencing memory).
+  bool meaningful = true;
 
   bool operator==(const Assignment &other) const {
     return encounter == other.encounter;

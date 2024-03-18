@@ -19,6 +19,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
@@ -67,6 +68,17 @@ void VCHandler::visitBeforeExecution(ExecutionState &state,
       recordValue(state, execEvent, valueIntrinsic, producer, symbolicValue);
     }
   }
+
+  // Track last variable intrinsic for later filtering of memory operations
+  if (const auto *varIntrinsic = dyn_cast<DbgVariableIntrinsic>(instruction)) {
+    const DILocalVariable *diVariable = varIntrinsic->getVariable();
+    assert(diVariable && "Variable intrinsic without a variable");
+    // TODO: Rework `Variable` to be unique so that variable-related data can be
+    // stored there and shared across various steps.
+    Variable variable = {diVariable, diVariable->getName(),
+                         diVariable->getFilename(), diVariable->getLine()};
+    lastVarIntrinsics[variable] = varIntrinsic;
+  }
 }
 
 void VCHandler::visitAfterExecution(ExecutionState &state,
@@ -105,6 +117,9 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &execEvent,
   if (!symbolicValue)
     return;
 
+  // KLEE_DEBUG(dbgs() << "Collecting value from event "
+  //                   << printInstruction(*valueEvent) << "\n");
+
   // Look for assignments matching the event
   // TODO: Gather all events up front first for faster filtering...?
   const auto matchingAssignments =
@@ -117,11 +132,33 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &execEvent,
 
   size_t matchCount = 0;
   for (VA &pair : matchingAssignments) {
-    const auto &var = pair.first;
-    auto *assignment = pair.second;
+    const Variable &var = pair.first;
+    Assignment *assignment = pair.second;
     assert(assignment->isUseEvent() == isUseEvent &&
            "Unexpected assignment use / definition state");
     ++matchCount;
+
+    // Memory operations are only meaningful for debug info purposes when the
+    // last encountered variable intrinsic is implicit (referencing memory).
+    if (isa<LoadInst>(valueEvent) || isa<StoreInst>(valueEvent)) {
+      if (!assignment->meaningful)
+        continue;
+      auto lastVarIntrinsicLookup = lastVarIntrinsics.find(var);
+      if (lastVarIntrinsicLookup == lastVarIntrinsics.end())
+        assignment->meaningful = false;
+      if (assignment->meaningful) {
+        const auto *lastVarIntrinsic = lastVarIntrinsics.at(var);
+        if (!isa<DbgDeclareInst>(lastVarIntrinsic) &&
+            !lastVarIntrinsic->getExpression()->startsWithDeref())
+          assignment->meaningful = false;
+      }
+      if (!assignment->meaningful) {
+        // KLEE_DEBUG(dbgs() << "  Memory assignment " << *assignment
+        //                   << " not debug meaningful, will be removed\n");
+        continue;
+      }
+    }
+
     // TODO: Track multiple values for an assignment when visiting a block
     // multiple times (if we end up needing that)
     if (assignment->producedSymbolicValues.size() ==

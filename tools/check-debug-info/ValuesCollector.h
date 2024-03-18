@@ -22,6 +22,7 @@ struct KInstruction;
 } // namespace klee
 
 namespace llvm {
+class DbgVariableIntrinsic;
 class Function;
 class Module;
 class StringRef;
@@ -64,6 +65,7 @@ private:
   VAs *varsAssignments;
   // TODO: Could store this on `Variable` if it were unique
   std::map<Variable, unsigned int> nextEncounters;
+  std::map<Variable, const llvm::DbgVariableIntrinsic *> lastVarIntrinsics;
 
 public:
   VCHandler() {}

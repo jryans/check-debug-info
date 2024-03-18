@@ -627,17 +627,28 @@ bool checkEquivalence(const Variable &variable, Assignment &testAssn,
   return result;
 }
 
-bool filterRedundantAssignments(const StringRef kind,
-                                const VariablesSet &variables, VToAs &varToAs,
-                                const ExecutionValidity &validity) {
+bool filterAssignments(const StringRef kind, const VariablesSet &variables,
+                       VToAs &varToAs, const ExecutionValidity &validity) {
   bool summary = true;
 
   for (const auto &variable : variables) {
     auto &assignments = varToAs[variable];
     if (assignments.size() < 2)
       continue;
-    KLEE_DEBUG(dbgs() << "Filtering redundant " << kind.lower()
+    KLEE_DEBUG(dbgs() << "Filtering " << kind.lower()
                       << " assignments: " << variable << "\n\n");
+
+    for (size_t i = 0, e = assignments.size(); i < e; ++i) {
+      auto &assn = assignments[i];
+      if (!assn.meaningful) {
+        KLEE_DEBUG(dbgs() << "🔔 " << kind << " " << variable << " "
+                          << "assn " << assn
+                          << " not debug meaningful, removing\n\n");
+        assignments.erase(assignments.begin() + i);
+        --i;
+        --e;
+      }
+    }
 
     for (size_t i = 1, e = assignments.size(); i < e; ++i) {
       auto &testAssn = assignments[i];
@@ -1324,7 +1335,7 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   outs() << "#### Collation\n\n";
 
   // Sort assignments by encounter order
-  // `filterRedundantAssignments` and `buildEncounterToAssignmentMap` assume
+  // `filterAssignments` and `buildEncounterToAssignmentMap` assume
   // they are sorted and eases debugging as well
   for (auto &varAssignments : beforeVToAs)
     sort(varAssignments.second);
@@ -1334,12 +1345,14 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   // Filter out any redundant assignments now that we have values
   // Keeping redundant assignments adds no new info and can confuse matching
   // assignments by execution encounter order.
+  // In addition, this also filters memory assignments, preserving only those
+  // preceeded by an implicit (referencing memory) variable intrinsic.
 
-  summary &= filterRedundantAssignments("Before", beforeVariables, beforeVToAs,
-                                        beforeExecutionValidity);
+  summary &= filterAssignments("Before", beforeVariables, beforeVToAs,
+                               beforeExecutionValidity);
 
-  summary &= filterRedundantAssignments("After", afterVariables, afterVToAs,
-                                        afterExecutionValidity);
+  summary &= filterAssignments("After", afterVariables, afterVToAs,
+                               afterExecutionValidity);
 
   // May have removed assignments
   // Flat VAs would need rebuilding if they were used past this point
