@@ -1018,7 +1018,18 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
         KLEE_DEBUG(dbgs() << "\n");
         continue;
       }
-      auto &refEncToA = refVToEncToA.at(variable);
+      // First handle case of no encountered reference assignments
+      const auto refEncToALookup = refVToEncToA.find(variable);
+      if (refEncToALookup == refVToEncToA.end()) {
+        outs() << "❌ " << testKind << " encountered assn for " << variable
+               << " at " << testAssn << " not found in " << refKind.lower()
+               << "\n";
+        ++testNotInRef;
+        KLEE_DEBUG(dbgs() << "\n");
+        continue;
+      }
+      // Then check for matching reference encounter
+      const auto &refEncToA = refVToEncToA.at(variable);
       auto refAssnLookup = refEncToA.find(*testAssn.encounter);
       if (refAssnLookup == refEncToA.end()) {
         outs() << "❌ " << testKind << " encountered assn for " << variable
