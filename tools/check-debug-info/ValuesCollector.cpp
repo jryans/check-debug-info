@@ -163,7 +163,7 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &execEvent,
       }
     }
 
-meaningful:
+  meaningful:
     // TODO: Track multiple values for an assignment when visiting a block
     // multiple times (if we end up needing that)
     if (assignment->producedSymbolicValues.size() ==
