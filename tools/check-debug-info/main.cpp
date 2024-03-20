@@ -699,12 +699,6 @@ bool buildEncounterToAssignmentMap(const StringRef kind,
     for (size_t i = 0, e = assignments.size(); i < e; ++i) {
       auto &assignment = assignments[i];
 
-      // Skip `undef` assignments, as they can only close the live range
-      // Previous assignment already stops at the next assignment, so no need to
-      // look back and close it manually
-      if (assignment.varIntrinsic->isUndef())
-        continue;
-
       // Look for any assignments that were not encountered
       if (!assignment.encounter) {
         outs() << "❌ Assignment " << assignment << " for " << variable
