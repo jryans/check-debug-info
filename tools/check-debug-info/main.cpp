@@ -667,45 +667,6 @@ bool filterAssignments(const StringRef kind, const VariablesSet &variables,
       auto &testAssn = assignments[i];
       auto &refAssn = assignments[i - 1];
 
-      // TODO: Should this check encountered instead of value to match the later
-      // assignments check...?
-      const auto &refSymValue = refAssn.evaluate();
-      const auto &testSymValue = testAssn.evaluate();
-      if (!testSymValue) {
-        if (validity.isCompleteButUncovered()) {
-          // If execution is complete but some coverage is missing, then relax
-          // missing value to unreachable
-          outs() << "🔔 " << kind << " " << variable << " "
-                 << "assn " << testAssn << " has no symbolic value "
-                 << "(likely unreachable) "
-                 << "from " << testAssn.producers << "\n";
-        } else {
-          outs() << "❌ " << kind << " " << variable << " "
-                 << "assn " << testAssn << " has no symbolic value "
-                 << "from " << testAssn.producers << "\n";
-          summary = false;
-        }
-        KLEE_DEBUG(dbgs() << "\n");
-        continue;
-      }
-      if (!refSymValue) {
-        if (validity.isCompleteButUncovered()) {
-          // If execution is complete but some coverage is missing, then relax
-          // missing value to unreachable
-          outs() << "🔔 " << kind << " " << variable << " "
-                 << "assn " << refAssn << " has no symbolic value "
-                 << "(likely unreachable) "
-                 << "from " << refAssn.producers << "\n";
-        } else {
-          outs() << "❌ " << kind << " " << variable << " "
-                 << "assn " << refAssn << " has no symbolic value "
-                 << "from " << refAssn.producers << "\n";
-          summary = false;
-        }
-        KLEE_DEBUG(dbgs() << "\n");
-        continue;
-      }
-
       bool result = checkEquivalence(variable, testAssn, refAssn);
       if (result) {
         KLEE_DEBUG(dbgs() << "🔔 Removing: " << testAssn << "\n");
