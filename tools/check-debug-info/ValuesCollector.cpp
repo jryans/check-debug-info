@@ -198,7 +198,11 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &execEvent,
     }
   }
 
-  assert(matchCount <= 1 && "Multiple matching assignments found");
+  // Memory operations may match multiple assignments
+  // (e.g. several variables derived from the same address)
+  // `dbg.value` events match only once
+  if (isa<DbgValueInst>(valueEvent))
+    assert(matchCount <= 1 && "Multiple matching assignments found");
 }
 
 ref<Expr> VCHandler::resolvePointers(ExecutionState &state,
