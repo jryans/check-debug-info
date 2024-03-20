@@ -547,6 +547,19 @@ bool checkEquivalence(const Variable &variable, Assignment &testAssn,
   const auto &refSymValue = refAssn.evaluate();
   const auto &testSymValue = testAssn.evaluate();
 
+  // When at least one side is `nullptr`, we check them directly so we can
+  // eliminate this case from the remaining steps.
+  if (!refSymValue || !testSymValue) {
+    KLEE_DEBUG(dbgs() << "Checking equivalence of " << variable << " "
+                      << "from\n"
+                      << "  assn " << testAssn << "\n"
+                      << "  " << testAssn.producers << "\n"
+                      << "and\n"
+                      << "  assn " << refAssn << "\n"
+                      << "  " << refAssn.producers << "\n");
+    return refSymValue.isNull() == testSymValue.isNull();
+  }
+
   KLEE_DEBUG(dbgs() << "Checking equivalence of " << variable << " "
                     << "from\n"
                     << "  assn " << testAssn << "\n"
@@ -654,6 +667,8 @@ bool filterAssignments(const StringRef kind, const VariablesSet &variables,
       auto &testAssn = assignments[i];
       auto &refAssn = assignments[i - 1];
 
+      // TODO: Should this check encountered instead of value to match the later
+      // assignments check...?
       const auto &refSymValue = refAssn.evaluate();
       const auto &testSymValue = testAssn.evaluate();
       if (!testSymValue) {
@@ -1064,12 +1079,9 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
         ++mismatchedCoords;
       }
 
-      const auto &testSymValue = testAssn.evaluate();
-      const auto &refSymValue = refAssn.evaluate();
-      // Test assignment was encountered, checked above
-      assert(testSymValue && "Test symbolic value unavailable");
-      // Reference assignment was encountered, iterating encounter only map
-      assert(refSymValue && "Reference symbolic value unavailable");
+      // Test assignment was encountered (checked above)
+      // Reference assignment was encountered (iterating encounter only map)
+      // Either value may still be `undef` though
 
       bool result = checkEquivalence(variable, testAssn, refAssn);
       if (result) {
