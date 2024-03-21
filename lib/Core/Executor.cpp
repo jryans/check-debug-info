@@ -4751,7 +4751,7 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
            "Unexpected pointer inside array type");
   }
 
-  // Allocate memory to hold symbolic value
+  // Calculate size of memory needed to hold symbolic value
   unsigned storeSizeBytes;
   if (valueType->isFunctionTy()) {
     // Functions are unsized in LLVM terms, but we still want to allocate an
@@ -4761,6 +4761,15 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     storeSizeBytes = kmodule->targetData->getTypeStoreSize(valueType);
   }
   storeSizeBytes *= count;
+
+  if (DebugExecutionTrace) {
+    *execTraceText << "Building symbolic value for " << *valueType;
+    if (count > 1)
+      *execTraceText << " x " << count;
+    *execTraceText << " " << valueName << " (" << storeSizeBytes * 8 << "b)…\n";
+  }
+
+  // Allocate memory to hold symbolic value
   const MemoryObject *valueMemory =
       memory->allocate(storeSizeBytes,
                        /*isLocal=*/true, /*isGlobal=*/false,
@@ -4769,13 +4778,6 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
 
   if (!valueMemory)
     klee_error("Could not allocate memory for value");
-
-  if (DebugExecutionTrace) {
-    *execTraceText << "Building symbolic value for " << *valueType;
-    if (count > 1)
-      *execTraceText << " x " << count;
-    *execTraceText << " " << valueName << " (" << storeSizeBytes * 8 << "b)…\n";
-  }
 
   // Create object state instance from the new memory
   assert(!valueName.str().empty() && "Unexpected empty symbolic value name");
