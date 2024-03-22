@@ -390,6 +390,11 @@ cl::opt<bool> OnlyUncoveredBranchTargets(
     cl::desc("Only jump to uncovered branch targets (default=false)."),
     cl::cat(TerminationCat));
 
+cl::opt<unsigned> MaxSymbolicValueDepth(
+    "max-symbolic-value-depth",
+    cl::desc("Only create this many levels when building symbolic data (default=2)"),
+    cl::init(2),
+    cl::cat(TerminationCat));
 
 /*** Debugging options ***/
 
@@ -4742,7 +4747,8 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
                                           const llvm::Value *allocSite,
                                           llvm::Type *valueType,
                                           const llvm::Twine &valueName,
-                                          const unsigned count) {
+                                          const unsigned count,
+                                          const unsigned depth) {
   assert(!valueType->isVoidTy() && !valueType->isVectorTy() &&
          "Unexpected type when building symbolic value");
   if (const auto *arrayType = dyn_cast<ArrayType>(valueType)) {
@@ -4767,6 +4773,14 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     if (count > 1)
       *execTraceText << " x " << count;
     *execTraceText << " " << valueName << " (" << storeSizeBytes * 8 << "b)…\n";
+  }
+
+  // Check depth
+  assert(MaxSymbolicValueDepth > 0 && "Unlimited symbolic value depth");
+  if (depth > MaxSymbolicValueDepth) {
+    if (DebugExecutionTrace)
+      *execTraceText << "Max symbolic value depth exceeded, aborting\n";
+    return nullptr;
   }
 
   // Allocate memory to hold symbolic value
@@ -4798,10 +4812,14 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     // Allocate more room for byte arrays
     if (pointeeType == Type::getInt8Ty(pointeeType->getContext()))
       pointeeCount = 32;
-    ObjectState *pointeeState = buildSymbolicValue(
-        state, allocSite, pointeeType, valueName + ".deref", pointeeCount);
+    ObjectState *pointeeState =
+        buildSymbolicValue(state, allocSite, pointeeType, valueName + ".deref",
+                           pointeeCount, depth + 1);
     // Store constant pointer value to avoid symbolic memory accesses
-    valueState->write(0, pointeeState->getObject()->getBaseExpr());
+    ref<ConstantExpr> ptr = pointeeState
+                                ? pointeeState->getObject()->getBaseExpr()
+                                : Expr::createPointer(0);
+    valueState->write(0, ptr);
   } else if (auto *structType = dyn_cast<StructType>(valueType)) {
     const StructLayout *layout =
         kmodule->targetData->getStructLayout(structType);
@@ -4819,12 +4837,15 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
         // Allocate more room for byte arrays
         if (pointeeType == Type::getInt8Ty(pointeeType->getContext()))
           pointeeCount = 32;
-        ObjectState *pointeeState = buildSymbolicValue(
-            state, allocSite, pointeeType,
-            valueName + ".e" + std::to_string(i) + ".deref", pointeeCount);
+        ObjectState *pointeeState =
+            buildSymbolicValue(state, allocSite, pointeeType,
+                               valueName + ".e" + std::to_string(i) + ".deref",
+                               pointeeCount, depth + 1);
         // Store constant pointer value to avoid symbolic memory accesses
-        valueState->write(layout->getElementOffset(i),
-                          pointeeState->getObject()->getBaseExpr());
+        ref<ConstantExpr> ptr = pointeeState
+                                    ? pointeeState->getObject()->getBaseExpr()
+                                    : Expr::createPointer(0);
+        valueState->write(layout->getElementOffset(i), ptr);
       } else {
         partiallySymbolic = true;
       }
