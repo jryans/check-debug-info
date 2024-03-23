@@ -536,6 +536,131 @@ bool gatherAssignments(const StringRef moduleKind, const Function &function,
   return summary;
 }
 
+void checkDeclareOnlyVariables(
+    VToAs &testVToAs, const ExecutionValidity &testValidity, VToAs &refVToAs,
+    const ExecutionValidity &refValidity, const StringRef functionName,
+    Optional<std::unique_ptr<llvm::raw_fd_ostream>> &report,
+    AssignmentStats &stats) {
+  // Filter for non-`dbg.declare` assignments
+  auto nonDeclareFilter = [](const Assignment &a) {
+    return !isa<DbgDeclareInst>(a.varIntrinsic);
+  };
+
+  // Look for variables with only `dbg.declare` assignments
+  for (auto &refVWithAs : refVToAs) {
+    const Variable &variable = refVWithAs.first;
+    auto &refAssns = const_cast<Assignments &>(refVWithAs.second);
+
+    // Skip if any non-`dbg.declare` reference assignments found
+    if (count_if(refAssns, nonDeclareFilter))
+      continue;
+
+    // Get test data for this reference variable
+    const auto testVToAsLookup = testVToAs.find(variable);
+    if (testVToAsLookup == testVToAs.end())
+      continue;
+    auto &testAssns = const_cast<Assignments &>(testVToAs.at(variable));
+
+    // Skip if any non-`dbg.declare` test assignments found
+    if (count_if(testAssns, nonDeclareFilter))
+      continue;
+
+    outs() << "✅ Variable `" << variable.name
+           << "` uses only a single memory location (via "
+              "`dbg.declare`), skipping further checks\n";
+
+    const size_t refTotal = 1;
+    const size_t testTotal = 1;
+
+    // Issue custom version of each report for this case
+    const auto &rv = refValidity;
+    const auto &tv = testValidity;
+
+    outs() << "Assignments:         " << variable.name << "\n";
+    outs() << "  Reference:         " << refTotal << "\n";
+    outs() << "  Test:              " << testTotal << "\n";
+    outs() << "Matching:\n";
+    outs() << "  Matching Coords:   " << testTotal << "\n";
+    outs() << "  Matching Value:    " << testTotal << "\n";
+    outs() << "Consistency Errors:\n";
+    outs() << "  Mismatched Coords: " << 0 << "\n";
+    outs() << "  Mismatched Value:  " << 0 << "\n";
+    outs() << "Availability Errors:\n";
+    outs() << "  Ref Not Encount.:  " << 0 << "\n";
+    outs() << "  Ref Not in Test:   " << 0 << "\n";
+    outs() << "  Test Not Encount.: " << 0 << "\n";
+    outs() << "  Test Not in Ref:   " << 0 << "\n";
+    outs() << "Warnings:\n";
+    outs() << "  Unused:            " << 0 << "\n";
+    outs() << "  Removable:         " << 0 << "\n";
+    outs() << "  Unreachable:       " << 0 << "\n";
+    outs() << "Reference Execution:\n";
+    outs() << "  Function Covered:  " << rv.functionCoveredStr() << "\n";
+    outs() << "  Complete:          " << rv.executionCompleteStr() << "\n";
+    outs() << "  Within Time Limit: " << rv.withinTimeLimitStr() << "\n";
+    outs() << "  Within Fork Limit: " << rv.withinForkLimitStr() << "\n";
+    outs() << "Test Execution:\n";
+    outs() << "  Function Covered:  " << tv.functionCoveredStr() << "\n";
+    outs() << "  Complete:          " << tv.executionCompleteStr() << "\n";
+    outs() << "  Within Time Limit: " << tv.withinTimeLimitStr() << "\n";
+    outs() << "  Within Fork Limit: " << tv.withinForkLimitStr() << "\n";
+    outs() << "\n";
+
+    if (report) {
+      **report << functionName << ", " << variable.name << ", decl "
+               << variable.declFile << ":" << variable.declLine << "\t";
+      **report << refTotal << "\t";
+      **report << testTotal << "\t";
+      // Matching
+      **report << testTotal << "\t";
+      **report << testTotal << "\t";
+      // Consistency errors
+      **report << 0 << "\t";
+      **report << 0 << "\t";
+      // Availability errors
+      **report << 0 << "\t";
+      **report << 0 << "\t";
+      **report << 0 << "\t";
+      **report << 0 << "\t";
+      // Warnings
+      **report << 0 << "\t";
+      **report << 0 << "\t";
+      **report << 0 << "\t";
+      // Reference Execution
+      **report << rv.functionCoveredStr() << "\t";
+      **report << rv.executionCompleteStr() << "\t";
+      **report << rv.withinTimeLimitStr() << "\t";
+      **report << rv.withinForkLimitStr() << "\t";
+      // Test Execution
+      **report << tv.functionCoveredStr() << "\t";
+      **report << tv.executionCompleteStr() << "\t";
+      **report << tv.withinTimeLimitStr() << "\t";
+      **report << tv.withinForkLimitStr();
+      **report << "\n";
+    }
+
+    stats.refTotal += refTotal;
+    stats.testTotal += testTotal;
+    // Matching
+    stats.matchingCoords += testTotal;
+    stats.matchingValue += testTotal;
+    // Reference Execution
+    stats.refFunctionCovered += (rv.functionCovered ? refTotal : 0);
+    stats.refExecutionComplete += (rv.executionComplete ? refTotal : 0);
+    stats.refWithinTimeLimit += (rv.withinTimeLimit ? refTotal : 0);
+    stats.refWithinForkLimit += (rv.withinForkLimit ? refTotal : 0);
+    // Test Execution
+    stats.testFunctionCovered += (tv.functionCovered ? testTotal : 0);
+    stats.testExecutionComplete += (tv.executionComplete ? testTotal : 0);
+    stats.testWithinTimeLimit += (tv.withinTimeLimit ? testTotal : 0);
+    stats.testWithinForkLimit += (tv.withinForkLimit ? testTotal : 0);
+
+    // Remove variable to skip further checks
+    refVToAs.erase(variable);
+    testVToAs.erase(variable);
+  }
+}
+
 bool checkEquivalence(const Variable &variable, Assignment &testAssn,
                       Assignment &refAssn) {
   // These are `static` so that we can save time by creating them only once and
@@ -777,6 +902,40 @@ SmallVector<std::unique_ptr<Module>, 2> loadModules(LLVMContext &ctx) {
   return bothModules;
 }
 
+void emitReportHeader(Optional<std::unique_ptr<llvm::raw_fd_ostream>> &report) {
+  if (!report)
+    return;
+  **report << "Name\t";
+  **report << "Reference\t";
+  **report << "Test\t";
+  // Matching
+  **report << "Matching Coords\t";
+  **report << "Matching Value\t";
+  // Consistency Errors
+  **report << "Mismatched Coords\t";
+  **report << "Mismatched Value\t";
+  // Availability Errors
+  **report << "Ref Not Encountered\t";
+  **report << "Ref Not in Test\t";
+  **report << "Test Not Encountered\t";
+  **report << "Test Not in Ref\t";
+  // Warnings
+  **report << "Unused\t";
+  **report << "Removable\t";
+  **report << "Unreachable\t";
+  // Reference Execution
+  **report << "Ref Function Covered\t";
+  **report << "Ref Execution Complete\t";
+  **report << "Ref Within Time Limit\t";
+  **report << "Ref Within Fork Limit\t";
+  // Test Execution
+  **report << "Test Function Covered\t";
+  **report << "Test Execution Complete\t";
+  **report << "Test Within Time Limit\t";
+  **report << "Test Within Fork Limit";
+  **report << "\n\n";
+}
+
 bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
                       const VToEncounterToA &testVToEncToA,
                       const ExecutionValidity &testValidity,
@@ -787,38 +946,6 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
                       Optional<std::unique_ptr<llvm::raw_fd_ostream>> &report,
                       AssignmentStats &stats) {
   bool summary = true;
-
-  if (report) {
-    **report << "Name\t";
-    **report << "Reference\t";
-    **report << "Test\t";
-    // Matching
-    **report << "Matching Coords\t";
-    **report << "Matching Value\t";
-    // Consistency Errors
-    **report << "Mismatched Coords\t";
-    **report << "Mismatched Value\t";
-    // Availability Errors
-    **report << "Ref Not Encountered\t";
-    **report << "Ref Not in Test\t";
-    **report << "Test Not Encountered\t";
-    **report << "Test Not in Ref\t";
-    // Warnings
-    **report << "Unused\t";
-    **report << "Removable\t";
-    **report << "Unreachable\t";
-    // Reference Execution
-    **report << "Ref Function Covered\t";
-    **report << "Ref Execution Complete\t";
-    **report << "Ref Within Time Limit\t";
-    **report << "Ref Within Fork Limit\t";
-    // Test Execution
-    **report << "Test Function Covered\t";
-    **report << "Test Execution Complete\t";
-    **report << "Test Within Time Limit\t";
-    **report << "Test Within Fork Limit";
-    **report << "\n\n";
-  }
 
   // Look for reference assignments from entire variables not found in test
   for (const auto &refVWithAs : refVToAs) {
@@ -1322,6 +1449,18 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   // ### Symbolic values
 
   outs() << "### Assignments\n\n";
+
+  if (bothDirections)
+    emitReportHeader(beforeReport);
+  emitReportHeader(afterReport);
+
+  outs() << "#### Variables with single memory location\n\n";
+
+  // Skip further checks for any variables whose debug-time representation is
+  // `dbg.declare` in both program versions
+  checkDeclareOnlyVariables(afterVToAs, afterExecutionValidity, beforeVToAs,
+                            beforeExecutionValidity, functionName, afterReport,
+                            stats);
 
   outs() << "#### Collation\n\n";
 
