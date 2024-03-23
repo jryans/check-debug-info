@@ -933,11 +933,18 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
     }
 
     stats.refTotal += refTotal;
+    // Availability errors
     stats.refNotEncountered += refNotEncountered;
     stats.refNotInTest += refNotInTest;
+    // Warnings
     stats.unused += unused;
     stats.removable += removable;
     stats.unreachable += unreachable;
+    // Reference Execution
+    stats.refFunctionCovered += (rv.functionCovered ? refTotal : 0);
+    stats.refExecutionComplete += (rv.executionComplete ? refTotal : 0);
+    stats.refWithinTimeLimit += (rv.withinTimeLimit ? refTotal : 0);
+    stats.refWithinForkLimit += (rv.withinForkLimit ? refTotal : 0);
   }
 
   // Check test assignments against reference
