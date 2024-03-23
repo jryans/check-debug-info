@@ -220,8 +220,11 @@ ref<Expr> VCHandler::resolvePointers(ExecutionState &state,
 
     // Build reproducible pointer value from memory object name and offset
     ObjectPair op;
-    assert(state.addressSpace.resolveOne(address, op) &&
-           "Concrete pointer not bound to MemoryObject");
+    // The following property holds for "safely deref-able" pointers, but
+    // looping via pointer arithmetic can fail here.
+    // TODO: Check for one-past-the-end and still use a hash for that...?
+    if (!state.addressSpace.resolveOne(address, op))
+      return symbolicValue;
     const auto *memory = op.first;
     ref<Expr> offset = memory->getOffsetExpr(address);
     KLEE_DEBUG(dbgs() << "  Concrete pointer resolves to " << memory->name
