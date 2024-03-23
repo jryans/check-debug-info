@@ -410,8 +410,14 @@ bool gatherMemoryAssignments(const StringRef moduleKind,
                                  std::move(producers), varToAs);
       } else if (const auto *bitcastInst = dyn_cast<BitCastInst>(use)) {
         values.push_back(bitcastInst);
+      } else if (const auto *gepInst = dyn_cast<GetElementPtrInst>(use)) {
+        // Only follow one level of `getelementptr` as an attempt to remain in
+        // the storage location described by debug info.
+        if (gepInst->getPointerOperand() != address)
+          continue;
+        values.push_back(gepInst);
       }
-      // TODO: Follow stores via `getelementptr` operations as well
+      // TODO: Follow calls here instead of loads
     }
   }
 
