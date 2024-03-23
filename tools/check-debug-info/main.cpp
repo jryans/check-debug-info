@@ -641,7 +641,7 @@ bool checkEquivalence(const Variable &variable, Assignment &testAssn,
 }
 
 bool filterAssignments(const StringRef kind, const VariablesSet &variables,
-                       VToAs &varToAs, const ExecutionValidity &validity) {
+                       VToAs &varToAs) {
   bool summary = true;
 
   for (const auto &variable : variables) {
@@ -1326,11 +1326,9 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   // In addition, this also filters memory assignments, preserving only those
   // preceeded by an implicit (referencing memory) variable intrinsic.
 
-  summary &= filterAssignments("Before", beforeVariables, beforeVToAs,
-                               beforeExecutionValidity);
+  summary &= filterAssignments("Before", beforeVariables, beforeVToAs);
 
-  summary &= filterAssignments("After", afterVariables, afterVToAs,
-                               afterExecutionValidity);
+  summary &= filterAssignments("After", afterVariables, afterVToAs);
 
   // May have removed assignments
   // Flat VAs would need rebuilding if they were used past this point
