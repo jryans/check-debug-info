@@ -498,7 +498,6 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
       interpreterHandler->getOutputFilename(SOLVER_QUERIES_KQUERY_FILE_NAME));
 
   this->solver = new TimingSolver(solver, EqualitySubstitution);
-  memory = new MemoryManager(&arrayCache);
 
   initializeSearchOptions();
 
@@ -4936,6 +4935,9 @@ void Executor::runFunctionSetup(ExecutionState &state) {
   // Reset RNG to initial seed for deterministic execution
   theRNG = RNG();
 
+  // Create new memory manager
+  memory = new MemoryManager(&arrayCache);
+
   if (StatsTracker::useStatistics() || userSearcherRequiresMD2U()) {
     statsTracker =
       new StatsTracker(*this,
@@ -4999,7 +5001,7 @@ void Executor::runFunctionSetup(ExecutionState &state) {
 }
 
 void Executor::runFunctionTeardown() {
-  // hack to clear memory objects
+  // Clear memory objects
   delete memory;
   memory = new MemoryManager(NULL);
 
