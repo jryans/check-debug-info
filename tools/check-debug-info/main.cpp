@@ -93,10 +93,17 @@ cl::opt<unsigned int> maxFunctions(
     cl::desc("Only examine the first `n` functions (default=0 => all)"),
     cl::cat(debugInfoCheckCategory));
 
-cl::opt<std::string> functionName(
-    "function-name",
-    cl::desc("Only examine a specific named function (exact match)"),
-    cl::cat(debugInfoCheckCategory));
+cl::list<std::string>
+    includeFunctions("include-function",
+                     cl::desc("Include only specific named function (exact "
+                              "match, can be specified multiple times)"),
+                     cl::cat(debugInfoCheckCategory));
+
+cl::list<std::string>
+    excludeFunctions("exclude-function",
+                     cl::desc("Exclude specific named function (exact match, "
+                              "can be specified multiple times"),
+                     cl::cat(debugInfoCheckCategory));
 
 cl::opt<std::string> relaxViaDiagnostics(
     "relax-via-diagnostics",
@@ -1553,9 +1560,21 @@ int main(int argc, char **argv) {
   const auto &beforeFunctions = beforeModule->getFunctionList();
   const auto &afterFunctions = afterModule->getFunctionList();
 
-  if (!functionName.empty())
-    outs() << "🔔 Only checking function named `" << functionName
-           << "` (`--function-name`)\n";
+  if (!includeFunctions.empty()) {
+    outs() << "🔔 Including only the following functions "
+           << "(`--include-function`):\n";
+    for (const auto &function : includeFunctions) {
+      outs() << "  " << function << "\n";
+    }
+  }
+
+  if (!excludeFunctions.empty()) {
+    outs() << "🔔 Excluding the following functions "
+           << "(`--exclude-function`):\n";
+    for (const auto &function : excludeFunctions) {
+      outs() << "  " << function << "\n";
+    }
+  }
 
   auto functionFilter = [](const Function &f) {
     if (f.isDeclaration())
@@ -1563,7 +1582,11 @@ int main(int argc, char **argv) {
     const auto name = f.getName();
     if (name.startswith("klee_") || name.equals("main"))
       return false;
-    if (!functionName.empty() && !name.equals(functionName))
+    if (!includeFunctions.empty() &&
+        find(includeFunctions, name) == includeFunctions.end())
+      return false;
+    if (!excludeFunctions.empty() &&
+        find(excludeFunctions, name) != excludeFunctions.end())
       return false;
     return true;
   };
