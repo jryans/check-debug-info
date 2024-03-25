@@ -4763,6 +4763,10 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     // Functions are unsized in LLVM terms, but we still want to allocate an
     // object to use in function pointers
     storeSizeBytes = 8;
+  } else if (!valueType->isSized()) {
+    // Some other types (e.g. opaque structs) are unsized
+    // Specific cases are handled in more detail below
+    storeSizeBytes = 0;
   } else {
     storeSizeBytes = kmodule->targetData->getTypeStoreSize(valueType);
   }
@@ -4783,6 +4787,18 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     return nullptr;
   }
 
+  // Examine unsized types in more detail
+  if (!valueType->isSized() && !valueType->isFunctionTy()) {
+    // For pointers to opaque structs, assume `nullptr` is good enough
+    if (auto *structType = dyn_cast<StructType>(valueType)) {
+      assert(structType->isOpaque() && "Unsized non-opaque struct");
+      if (DebugExecutionTrace)
+        *execTraceText << "Skipping opaque struct " << *structType << "\n";
+      return nullptr;
+    }
+    llvm_unreachable("Unexpected unsized type");
+  }
+
   // Allocate memory to hold symbolic value
   const MemoryObject *valueMemory =
       memory->allocate(storeSizeBytes,
@@ -4801,10 +4817,10 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
       bindObjectInState(state, valueMemory, /*isLocal=*/true, array);
 
   if (const auto *ptrType = dyn_cast<PointerType>(valueType)) {
-    auto *pointeeType = ptrType->getElementType();
     // Build the pointee value
     // TODO: Add the nullptr case as well...?
     // TODO: Add the array case as well...?
+    auto *pointeeType = ptrType->getElementType();
     // Default allocation leaves room for functions with pointer math
     // (We aren't trying to detect OOB memory safety violations like traditional
     // KLEE usage, so really this could be any number.)
@@ -4829,10 +4845,10 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
       // Check each struct element for pointers
       // TODO: Deduplicate with the block above
       if (const auto *ptrType = dyn_cast<PointerType>(elementType)) {
-        auto *pointeeType = ptrType->getElementType();
         // Build the pointee value
         // TODO: Add the nullptr case as well...?
         // TODO: Add the array case as well...?
+        auto *pointeeType = ptrType->getElementType();
         unsigned pointeeCount = 1;
         // Allocate more room for byte arrays
         if (pointeeType == Type::getInt8Ty(pointeeType->getContext()))
