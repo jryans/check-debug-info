@@ -51,6 +51,13 @@ struct Variable {
   }
 };
 
+inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
+                                     const Variable &variable) {
+  out << "`" << variable.name << "` ";
+  out << "(decl src ln " << variable.declLine << ")";
+  return out;
+}
+
 using Values = llvm::SmallVector<const llvm::Value *, 2>;
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
@@ -73,13 +80,6 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
   }
   out << " ]";
 
-  return out;
-}
-
-inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
-                                     const Variable &variable) {
-  out << "`" << variable.name << "` ";
-  out << "(decl src ln " << variable.declLine << ")";
   return out;
 }
 
