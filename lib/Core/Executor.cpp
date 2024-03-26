@@ -557,7 +557,8 @@ Executor::setModule(std::vector<std::unique_ptr<llvm::Module>> &modules,
 }
 
 Executor::~Executor() {
-  delete memory;
+  // JRS: Somehow `memory` can become non-null when no functions are run...?
+  // delete memory;
   delete externalDispatcher;
   delete specialFunctionHandler;
   delete statsTracker;
@@ -5001,9 +5002,7 @@ void Executor::runFunctionSetup(ExecutionState &state) {
 }
 
 void Executor::runFunctionTeardown() {
-  // Clear memory objects
   delete memory;
-  memory = new MemoryManager(NULL);
 
   globalObjects.clear();
   globalAddresses.clear();
