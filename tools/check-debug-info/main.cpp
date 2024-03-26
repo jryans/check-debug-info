@@ -1333,13 +1333,56 @@ bool checkAssignments(const StringRef testKind, const VToAs &testVToAs,
   return summary;
 }
 
+void printStats(const AssignmentStats &stats) {
+#define STATS_R(field)                                                         \
+  format("%9u", stats.field)                                                   \
+      << " (" << format("%6.2f", (double)stats.field / stats.refTotal * 100)   \
+      << "% of ref )"
+#define STATS_T(field)                                                         \
+  format("%9u", stats.field)                                                   \
+      << " (" << format("%6.2f", (double)stats.field / stats.testTotal * 100)  \
+      << "% of test)"
+
+  outs() << "Assignments:\n";
+  outs() << "  Reference:         " << format("%9u", stats.refTotal) << "\n";
+  outs() << "  Test:              " << STATS_R(testTotal) << "\n";
+  outs() << "Matching:\n";
+  outs() << "  Matching Coords:   " << STATS_R(matchingCoords) << "\n";
+  outs() << "  Matching Value:    " << STATS_R(matchingValue) << "\n";
+  outs() << "Consistency Errors:\n";
+  outs() << "  Mismatched Coords: " << STATS_R(mismatchedCoords) << "\n";
+  outs() << "  Mismatched Value:  " << STATS_R(mismatchedValue) << "\n";
+  outs() << "Availability Errors:\n";
+  outs() << "  Ref Not Encount.:  " << STATS_R(refNotEncountered) << "\n";
+  outs() << "  Ref Not in Test:   " << STATS_R(refNotInTest) << "\n";
+  outs() << "  Test Not Encount.: " << STATS_T(testNotEncountered) << "\n";
+  outs() << "  Test Not in Ref:   " << STATS_T(testNotInRef) << "\n";
+  outs() << "Warnings:\n";
+  outs() << "  Unused:            " << STATS_R(unused) << "\n";
+  outs() << "  Removable:         " << STATS_R(removable) << "\n";
+  outs() << "  Unreachable:       " << STATS_R(unreachable) << "\n";
+  outs() << "Reference Execution:\n";
+  outs() << "  Function Covered:  " << STATS_R(refFunctionCovered) << "\n";
+  outs() << "  Complete:          " << STATS_R(refExecutionComplete) << "\n";
+  outs() << "  Within Time Limit: " << STATS_R(refWithinTimeLimit) << "\n";
+  outs() << "  Within Fork Limit: " << STATS_R(refWithinForkLimit) << "\n";
+  outs() << "Test Execution:\n";
+  outs() << "  Function Covered:  " << STATS_T(testFunctionCovered) << "\n";
+  outs() << "  Complete:          " << STATS_T(testExecutionComplete) << "\n";
+  outs() << "  Within Time Limit: " << STATS_T(testWithinTimeLimit) << "\n";
+  outs() << "  Within Fork Limit: " << STATS_T(testWithinForkLimit) << "\n";
+  outs() << "\n";
+}
+
 bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
                    const StringRef functionName,
                    const std::vector<Diagnostic> &diagnostics,
-                   AssignmentStats &stats) {
+                   AssignmentStats &programStats) {
   bool summary = true;
 
   outs() << "## Function `" << functionName << "`\n\n";
+
+  AssignmentStats functionStats = {};
 
   SmallString<128> beforeOutputDir = createOutputDir(beforeFile, functionName);
   ValuesCollector &beforeCollector = collectors[0];
@@ -1472,7 +1515,7 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   // `dbg.declare` in both program versions
   checkDeclareOnlyVariables(afterVToAs, afterExecutionValidity, beforeVToAs,
                             beforeExecutionValidity, functionName, afterReport,
-                            stats);
+                            functionStats);
 
   outs() << "#### Collation\n\n";
 
@@ -1517,9 +1560,15 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
   summary &= checkAssignments("After", afterVToAs, afterVToEncToA,
                               afterExecutionValidity, "Before", beforeVToAs,
                               beforeVToEncToA, beforeExecutionValidity,
-                              functionName, afterReport, stats);
+                              functionName, afterReport, functionStats);
 
   // End ### Assignments
+
+  outs() << "### Summary\n\n";
+
+  printStats(functionStats);
+
+  programStats += functionStats;
 
   return summary;
 }
@@ -1647,7 +1696,7 @@ int main(int argc, char **argv) {
 
   outs() << "\n"; // ## Functions
 
-  AssignmentStats stats = {};
+  AssignmentStats programStats = {};
 
   if (listFunctions)
     outs() << "Functions that would be checked (`--list-functions`):\n";
@@ -1660,7 +1709,7 @@ int main(int argc, char **argv) {
       outs() << "  " << beforeDefinition.getName() << "\n";
     else
       summary &= checkFunction(collectors, beforeDefinition.getName(),
-                               diagnostics, stats);
+                               diagnostics, programStats);
     ++currentFunctionNum;
     if (maxFunctions && currentFunctionNum == maxFunctions)
       break;
@@ -1671,44 +1720,7 @@ int main(int argc, char **argv) {
 
   outs() << "## Summary\n\n";
 
-#define STATS_R(field)                                                         \
-  format("%9u", stats.field)                                                   \
-      << " (" << format("%6.2f", (double)stats.field / stats.refTotal * 100)   \
-      << "% of ref )"
-#define STATS_T(field)                                                         \
-  format("%9u", stats.field)                                                   \
-      << " (" << format("%6.2f", (double)stats.field / stats.testTotal * 100)  \
-      << "% of test)"
-
-  outs() << "Assignments:\n";
-  outs() << "  Reference:         " << format("%9u", stats.refTotal) << "\n";
-  outs() << "  Test:              " << STATS_R(testTotal) << "\n";
-  outs() << "Matching:\n";
-  outs() << "  Matching Coords:   " << STATS_R(matchingCoords) << "\n";
-  outs() << "  Matching Value:    " << STATS_R(matchingValue) << "\n";
-  outs() << "Consistency Errors:\n";
-  outs() << "  Mismatched Coords: " << STATS_R(mismatchedCoords) << "\n";
-  outs() << "  Mismatched Value:  " << STATS_R(mismatchedValue) << "\n";
-  outs() << "Availability Errors:\n";
-  outs() << "  Ref Not Encount.:  " << STATS_R(refNotEncountered) << "\n";
-  outs() << "  Ref Not in Test:   " << STATS_R(refNotInTest) << "\n";
-  outs() << "  Test Not Encount.: " << STATS_T(testNotEncountered) << "\n";
-  outs() << "  Test Not in Ref:   " << STATS_T(testNotInRef) << "\n";
-  outs() << "Warnings:\n";
-  outs() << "  Unused:            " << STATS_R(unused) << "\n";
-  outs() << "  Removable:         " << STATS_R(removable) << "\n";
-  outs() << "  Unreachable:       " << STATS_R(unreachable) << "\n";
-  outs() << "Reference Execution:\n";
-  outs() << "  Function Covered:  " << STATS_R(refFunctionCovered) << "\n";
-  outs() << "  Complete:          " << STATS_R(refExecutionComplete) << "\n";
-  outs() << "  Within Time Limit: " << STATS_R(refWithinTimeLimit) << "\n";
-  outs() << "  Within Fork Limit: " << STATS_R(refWithinForkLimit) << "\n";
-  outs() << "Test Execution:\n";
-  outs() << "  Function Covered:  " << STATS_T(testFunctionCovered) << "\n";
-  outs() << "  Complete:          " << STATS_T(testExecutionComplete) << "\n";
-  outs() << "  Within Time Limit: " << STATS_T(testWithinTimeLimit) << "\n";
-  outs() << "  Within Fork Limit: " << STATS_T(testWithinForkLimit) << "\n";
-  outs() << "\n";
+  printStats(programStats);
 
   if (summary) {
     outs() << "🎉 All consistency checks passed\n";

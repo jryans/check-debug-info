@@ -46,6 +46,30 @@ struct AssignmentStats {
   size_t testExecutionComplete;
   size_t testWithinTimeLimit;
   size_t testWithinForkLimit;
+
+  void operator+=(const AssignmentStats &other) {
+    refTotal += other.refTotal;
+    testTotal += other.testTotal;
+    matchingCoords += other.matchingCoords;
+    matchingValue += other.matchingValue;
+    mismatchedCoords += other.mismatchedCoords;
+    mismatchedValue += other.mismatchedValue;
+    refNotEncountered += other.refNotEncountered;
+    refNotInTest += other.refNotInTest;
+    testNotEncountered += other.testNotEncountered;
+    testNotInRef += other.testNotInRef;
+    unused += other.unused;
+    removable += other.removable;
+    unreachable += other.unreachable;
+    refFunctionCovered += other.refFunctionCovered;
+    refExecutionComplete += other.refExecutionComplete;
+    refWithinTimeLimit += other.refWithinTimeLimit;
+    refWithinForkLimit += other.refWithinForkLimit;
+    testFunctionCovered += other.testFunctionCovered;
+    testExecutionComplete += other.testExecutionComplete;
+    testWithinTimeLimit += other.testWithinTimeLimit;
+    testWithinForkLimit += other.testWithinForkLimit;
+  }
 };
 
 #endif // STATS_H
