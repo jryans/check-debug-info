@@ -70,8 +70,8 @@ cl::opt<bool> OutputIStats("output-istats", cl::init(true),
                            cl::cat(StatsCat));
 
 cl::opt<std::string> StatsWriteInterval(
-    "stats-write-interval", cl::init("1s"),
-    cl::desc("Approximate time between stats writes (default=1s)"),
+    "stats-write-interval", cl::init(""),
+    cl::desc("Approximate time between stats writes (default=disabled)"),
     cl::cat(StatsCat));
 
 cl::opt<unsigned> StatsWriteAfterInstructions(
@@ -83,15 +83,15 @@ cl::opt<unsigned> StatsWriteAfterInstructions(
 cl::opt<unsigned> CommitEvery(
     "stats-commit-after", cl::init(0),
     cl::desc("Commit the statistics every N writes. By default commit every "
-              "write with -stats-write-interval or every 1000 writes with "
-              "-stats-write-after-instructions. (default=0)"),
+             "write with -stats-write-interval or every 1000 writes with "
+             "-stats-write-after-instructions. (default=0)"),
     cl::cat(StatsCat));
 
-cl::opt<std::string> IStatsWriteInterval(
-    "istats-write-interval", cl::init("10s"),
-    cl::desc(
-        "Approximate number of seconds between istats writes (default=10s)"),
-    cl::cat(StatsCat));
+cl::opt<std::string>
+    IStatsWriteInterval("istats-write-interval", cl::init(""),
+                        cl::desc("Approximate number of seconds between istats "
+                                 "writes (default=disabled)"),
+                        cl::cat(StatsCat));
 
 cl::opt<unsigned> IStatsWriteAfterInstructions(
     "istats-write-after-instructions", cl::init(0),
@@ -101,8 +101,8 @@ cl::opt<unsigned> IStatsWriteAfterInstructions(
 
 // XXX I really would like to have dynamic rate control for something like this.
 cl::opt<std::string> UncoveredUpdateInterval(
-    "uncovered-update-interval", cl::init("30s"),
-    cl::desc("Update interval for uncovered instructions (default=30s)"),
+    "uncovered-update-interval", cl::init(""),
+    cl::desc("Update interval for uncovered instructions (default=disabled)"),
     cl::cat(StatsCat));
 
 cl::opt<bool> UseCallPaths("use-call-paths", cl::init(true),
