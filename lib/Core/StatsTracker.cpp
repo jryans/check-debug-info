@@ -80,12 +80,12 @@ cl::opt<unsigned> StatsWriteAfterInstructions(
         "Write statistics after each n instructions, 0 to disable (default=0)"),
     cl::cat(StatsCat));
 
-  cl::opt<unsigned> CommitEvery(
-      "stats-commit-after", cl::init(0),
-      cl::desc("Commit the statistics every N writes. By default commit every "
-               "write with -stats-write-interval or every 1000 writes with "
-               "-stats-write-after-instructions. (default=0)"),
-      cl::cat(StatsCat));
+cl::opt<unsigned> CommitEvery(
+    "stats-commit-after", cl::init(0),
+    cl::desc("Commit the statistics every N writes. By default commit every "
+              "write with -stats-write-interval or every 1000 writes with "
+              "-stats-write-after-instructions. (default=0)"),
+    cl::cat(StatsCat));
 
 cl::opt<std::string> IStatsWriteInterval(
     "istats-write-interval", cl::init("10s"),
