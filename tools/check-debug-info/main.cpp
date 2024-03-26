@@ -553,23 +553,31 @@ void checkDeclareOnlyVariables(
   };
 
   // Look for variables with only `dbg.declare` assignments
-  for (auto &refVWithAs : refVToAs) {
+  // Note that `end` can't be hoisted since we might mutate while iterating.
+  for (auto i = refVToAs.begin(); i != refVToAs.end(); /* no increment */) {
+    auto &refVWithAs = *i;
     const Variable &variable = refVWithAs.first;
     auto &refAssns = const_cast<Assignments &>(refVWithAs.second);
 
     // Skip if any non-`dbg.declare` reference assignments found
-    if (count_if(refAssns, nonDeclareFilter))
+    if (count_if(refAssns, nonDeclareFilter)) {
+      ++i;
       continue;
+    }
 
     // Get test data for this reference variable
     const auto testVToAsLookup = testVToAs.find(variable);
-    if (testVToAsLookup == testVToAs.end())
+    if (testVToAsLookup == testVToAs.end()) {
+      ++i;
       continue;
+    }
     auto &testAssns = const_cast<Assignments &>(testVToAs.at(variable));
 
     // Skip if any non-`dbg.declare` test assignments found
-    if (count_if(testAssns, nonDeclareFilter))
+    if (count_if(testAssns, nonDeclareFilter)) {
+      ++i;
       continue;
+    }
 
     outs() << "✅ Variable `" << variable.name
            << "` uses only a single memory location (via "
@@ -662,7 +670,7 @@ void checkDeclareOnlyVariables(
     stats.testWithinForkLimit += (tv.withinForkLimit ? testTotal : 0);
 
     // Remove variable to skip further checks
-    refVToAs.erase(variable);
+    i = refVToAs.erase(i);
     testVToAs.erase(variable);
   }
 }
