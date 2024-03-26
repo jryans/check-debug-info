@@ -1560,10 +1560,32 @@ int main(int argc, char **argv) {
     diagnostics = tuDiags.diagnostics;
   }
 
+  // TODO: Move this closer to actual JIT usage...
+  InitializeNativeTarget();
+
+  std::string runtimeDir = getRuntimeLibraryPath(argv[0]);
+
+  // Prepare modules for value collection via symbolic execution
+  // A single collector is created for each module to avoid repeating per-module
+  // work for every analysed function.
+  // Must run KLEE's module transformations (via the `prepare` calls below)
+  // _before_ any static analysis, as otherwise we may end up saving IR values
+  // that are removed.
+  SmallVector<ValuesCollector, 2> collectors;
+  ValuesCollector beforeCollector;
+  beforeCollector.prepare(getModuleDir(beforeFile), runtimeDir,
+                          std::move(beforeModule));
+  collectors.push_back(std::move(beforeCollector));
+  ValuesCollector afterCollector;
+  afterCollector.prepare(getModuleDir(afterFile), runtimeDir,
+                         std::move(afterModule));
+  collectors.push_back(std::move(afterCollector));
+
   outs() << "## Functions\n\n";
 
-  const auto &beforeFunctions = beforeModule->getFunctionList();
-  const auto &afterFunctions = afterModule->getFunctionList();
+  // Regain access to function lists after handing over modules above
+  const auto &beforeFunctions = collectors[0].getModule()->getFunctionList();
+  const auto &afterFunctions = collectors[1].getModule()->getFunctionList();
 
   if (!includeFunctions.empty()) {
     outs() << "🔔 Including only the following functions "
@@ -1616,54 +1638,27 @@ int main(int argc, char **argv) {
 
   outs() << "\n"; // ## Functions
 
-  // TODO: Move this closer to actual JIT usage...
-  InitializeNativeTarget();
-
-  std::string runtimeDir = getRuntimeLibraryPath(argv[0]);
-
-  // Prepare modules for value collection via symbolic execution
-  // A single collector is created for each module to avoid repeating per-module
-  // work for every analysed function.
-  // Must run KLEE's module transformations (via the `prepare` calls below)
-  // _before_ any static analysis, as otherwise we may end up saving IR values
-  // that are removed.
-  SmallVector<ValuesCollector, 2> collectors;
-  ValuesCollector beforeCollector;
-  beforeCollector.prepare(getModuleDir(beforeFile), runtimeDir,
-                          std::move(beforeModule));
-  collectors.push_back(std::move(beforeCollector));
-  ValuesCollector afterCollector;
-  afterCollector.prepare(getModuleDir(afterFile), runtimeDir,
-                         std::move(afterModule));
-  collectors.push_back(std::move(afterCollector));
-
   AssignmentStats stats = {};
 
-  {
+  if (listFunctions)
+    outs() << "Functions that would be checked (`--list-functions`):\n";
+
+  const auto beforeDefinitions =
+      make_filter_range(beforeFunctions, functionFilter);
+  size_t currentFunctionNum = 0;
+  for (const Function &beforeDefinition : beforeDefinitions) {
     if (listFunctions)
-      outs() << "Functions that would be checked (`--list-functions`):\n";
-
-    // Regain access to the before module after handing it over above
-    const Module *beforeModulePtr = collectors[0].getModule();
-    const auto &beforeFunctions = beforeModulePtr->getFunctionList();
-
-    const auto beforeDefinitions =
-        make_filter_range(beforeFunctions, functionFilter);
-    size_t currentFunctionNum = 0;
-    for (const Function &beforeDefinition : beforeDefinitions) {
-      if (listFunctions)
-        outs() << "  " << beforeDefinition.getName() << "\n";
-      else
-        summary &= checkFunction(collectors, beforeDefinition.getName(),
-                                 diagnostics, stats);
-      ++currentFunctionNum;
-      if (maxFunctions && currentFunctionNum == maxFunctions)
-        break;
-    }
-
-    if (listFunctions)
-      return EXIT_SUCCESS;
+      outs() << "  " << beforeDefinition.getName() << "\n";
+    else
+      summary &= checkFunction(collectors, beforeDefinition.getName(),
+                               diagnostics, stats);
+    ++currentFunctionNum;
+    if (maxFunctions && currentFunctionNum == maxFunctions)
+      break;
   }
+
+  if (listFunctions)
+    return EXIT_SUCCESS;
 
   outs() << "## Summary\n\n";
 
