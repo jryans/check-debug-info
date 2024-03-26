@@ -1615,7 +1615,8 @@ int main(int argc, char **argv) {
     if (f.isDeclaration())
       return false;
     const auto name = f.getName();
-    if (name.startswith("klee_") || name.equals("main"))
+    if (name.startswith("klee_") || name.startswith("mem") ||
+        name.equals("main"))
       return false;
     if (!includeFunctions.empty() &&
         find(includeFunctions, name) == includeFunctions.end())
