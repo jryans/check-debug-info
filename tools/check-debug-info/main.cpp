@@ -105,6 +105,11 @@ cl::list<std::string>
                               "can be specified multiple times"),
                      cl::cat(debugInfoCheckCategory));
 
+cl::opt<bool> listFunctions(
+    "list-functions",
+    cl::desc("Print all functions that would be checked and exit"),
+    cl::cat(debugInfoCheckCategory));
+
 cl::opt<std::string> relaxViaDiagnostics(
     "relax-via-diagnostics",
     cl::desc(
@@ -1635,6 +1640,9 @@ int main(int argc, char **argv) {
   AssignmentStats stats = {};
 
   {
+    if (listFunctions)
+      outs() << "Functions that would be checked (`--list-functions`):\n";
+
     // Regain access to the before module after handing it over above
     const Module *beforeModulePtr = collectors[0].getModule();
     const auto &beforeFunctions = beforeModulePtr->getFunctionList();
@@ -1643,12 +1651,18 @@ int main(int argc, char **argv) {
         make_filter_range(beforeFunctions, functionFilter);
     size_t currentFunctionNum = 0;
     for (const Function &beforeDefinition : beforeDefinitions) {
-      summary &= checkFunction(collectors, beforeDefinition.getName(),
-                               diagnostics, stats);
+      if (listFunctions)
+        outs() << "  " << beforeDefinition.getName() << "\n";
+      else
+        summary &= checkFunction(collectors, beforeDefinition.getName(),
+                                 diagnostics, stats);
       ++currentFunctionNum;
       if (maxFunctions && currentFunctionNum == maxFunctions)
         break;
     }
+
+    if (listFunctions)
+      return EXIT_SUCCESS;
   }
 
   outs() << "## Summary\n\n";
