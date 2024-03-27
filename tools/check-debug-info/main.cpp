@@ -302,7 +302,7 @@ bool addAssignment(const StringRef moduleKind,
     assignment.producedLine = variable.declLine;
   }
   if (!assignment.producedLine) {
-    outs() << "  🔔 Missing produced ln, using decl ln\n";
+    // outs() << "  🔔 Missing produced ln, using decl ln\n";
     assignment.producedLine = variable.declLine;
   }
 
@@ -322,11 +322,11 @@ bool addAssignment(const StringRef moduleKind,
     }
   }
   if (!assignment.liveLine) {
-    outs() << "  🔔 Missing live ln, using produced ln + 1\n";
+    // outs() << "  🔔 Missing live ln, using produced ln + 1\n";
     assignment.liveLine = assignment.producedLine + 1;
   }
   if (assignment.liveLine <= assignment.producedLine) {
-    outs() << "  🔔 Live ln too early, using produced ln + 1\n";
+    // outs() << "  🔔 Live ln too early, using produced ln + 1\n";
     assignment.liveLine = assignment.producedLine + 1;
   }
   if (assignment.liveLine < variable.declLine) {
