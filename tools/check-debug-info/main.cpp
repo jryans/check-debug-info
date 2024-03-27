@@ -1724,9 +1724,12 @@ int main(int argc, char **argv) {
   if (listFunctions)
     return EXIT_SUCCESS;
 
-  outs() << "## Summary\n\n";
+  // Only print program-level summary if we examined multiple functions
+  if (currentFunctionNum > 1) {
+    outs() << "## Summary\n\n";
 
-  printStats(programStats);
+    printStats(programStats);
+  }
 
   if (summary) {
     outs() << "🎉 All consistency checks passed\n";
