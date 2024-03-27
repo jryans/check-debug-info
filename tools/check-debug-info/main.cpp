@@ -812,6 +812,12 @@ bool filterAssignments(const StringRef kind, const VariablesSet &variables,
       auto &testAssn = assignments[i];
       auto &refAssn = assignments[i - 1];
 
+      // We can only filter away redundant events if both were encountered
+      // This is a bit nuanced, since `evaluate` returns `nullptr` for _both_
+      // `undef` _and_ "not encountered".
+      if (!testAssn.encounter || !refAssn.encounter)
+        continue;
+
       bool result = checkEquivalence(variable, testAssn, refAssn);
       if (result) {
         KLEE_DEBUG(dbgs() << "🔔 Removing: " << testAssn << "\n");
