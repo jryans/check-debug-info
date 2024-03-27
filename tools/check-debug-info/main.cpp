@@ -222,8 +222,8 @@ bool addAssignment(const StringRef moduleKind,
     assert(producers[0] == event && "Defintion producer does not match event");
   }
 
-  outs() << eventKind << " " << variable << ", asm ln "
-         << instrInfo.getInfo(*event).assemblyLine << "\n";
+  auto eventAsmLn = instrInfo.getInfo(*event).assemblyLine;
+  outs() << eventKind << " " << variable << ", asm ln " << eventAsmLn << "\n";
 
   KLEE_DEBUG(dbgs() << "  ");
   if (producers.size() > 1)
@@ -247,6 +247,8 @@ bool addAssignment(const StringRef moduleKind,
   if (producers.size() > 1)
     KLEE_DEBUG(dbgs() << " ]");
   KLEE_DEBUG(dbgs() << "\n");
+  KLEE_DEBUG(dbgs() << "  " << printInstruction(*event) << ", asm ln "
+                    << eventAsmLn << "\n");
 
   auto &assignments = varToAs[variable];
 
