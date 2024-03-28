@@ -69,7 +69,7 @@ void VCHandler::visitBeforeExecution(ExecutionState &state,
     }
   }
 
-  // Track last variable intrinsic for later filtering of memory operations
+  // Track last variable intrinsic for later filtering of memory assignments
   if (const auto *varIntrinsic = dyn_cast<DbgVariableIntrinsic>(instruction)) {
     const DILocalVariable *diVariable = varIntrinsic->getVariable();
     assert(diVariable && "Variable intrinsic without a variable");
@@ -81,51 +81,46 @@ void VCHandler::visitBeforeExecution(ExecutionState &state,
   }
 }
 
-void VCHandler::visitAfterExecution(ExecutionState &state,
-                                    ExecutionEvent &execEvent,
-                                    KInstruction *ki) {
-  const auto *instruction = ki->inst;
+void VCHandler::visitModifiedCallArgument(ExecutionState &state,
+                                          ExecutionEvent &execEvent,
+                                          KInstruction *ki,
+                                          const llvm::Value *argOperand,
+                                          ref<Expr> symbolicValue) {
+  // Visit each modifiable (address-taken) call argument after the call
+  // As part of independent function mode, execution resets these arguments to
+  // new symbolic variables.
 
-  // Loads are visited for reads from `dbg.declare` intrinsic targets
-
-  if (const auto *loadInstruction = dyn_cast<LoadInst>(instruction)) {
-    const Value *producer = loadInstruction;
-    if (!producer)
-      return;
-    ref<Expr> symbolicValue = interpreter->getDestCell(state, ki).value;
-    recordValue(state, execEvent, loadInstruction, producer, symbolicValue);
-  }
+  const auto *callInstruction = cast<CallInst>(ki->inst);
+  recordValue(state, execEvent, callInstruction, argOperand, symbolicValue);
 }
 
 void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &execEvent,
-                            const Instruction *valueEvent,
+                            const Instruction *assignmentEvent,
                             const Value *producer, ref<Expr> symbolicValue) {
-  assert(valueEvent && "Assignment event missing");
-  // We currently filter assignments by event (as a way of matching memory
-  // operations as well as value intrinsics).
-  // This works for both use events (e.g. stores and `dbg.value` intrinsics) and
-  // definition events (e.g. loads) since we have a distinct triggering event to
-  // uniquely match on in all such cases.
+  assert(assignmentEvent && "Assignment event missing");
+  // We currently filter assignments by event (as a way of matching both
+  // explicit value and implicit memory modifications).
+  // Value assignments are expected to match uniquely by event.
+  // Some memory assignments (e.g. calls) may have multiple matches if e.g. the
+  // same call has several address-taken locals.
   // (If we instead tried to search for matching _producers_, we'd potentially
-  // have multiple matches in cases where there's e.g. both a `load` and
+  // have multiple matches in cases where there's e.g. both a `store` and
   // `dbg.value` using that as a producer.)
   // TODO: Revisit this later, as we may in fact want to _take advantage_ of
-  // non-void producers matching multiple assignments as some kind of
-  // performance optimisation.
-  bool isUseEvent = valueEvent->getType()->isVoidTy();
+  // matching multiple assignments as some kind of performance optimisation.
   assert(producer && "Symbolic value producer missing");
   if (!symbolicValue)
     return;
 
   // KLEE_DEBUG(dbgs() << "Collecting value from event "
-  //                   << printInstruction(*valueEvent) << "\n");
+  //                   << printInstruction(*assignmentEvent) << "\n");
 
   // Look for assignments matching the event
   // TODO: Gather all events up front first for faster filtering...?
   const auto matchingAssignments =
       make_filter_range(*varsAssignments, [&](VA &pair) {
         const auto *assignment = pair.second;
-        return assignment->event == valueEvent;
+        return assignment->event == assignmentEvent;
       });
 
   bool resolved = false;
@@ -134,13 +129,11 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &execEvent,
   for (VA &pair : matchingAssignments) {
     const Variable &var = pair.first;
     Assignment *assignment = pair.second;
-    assert(assignment->isUseEvent() == isUseEvent &&
-           "Unexpected assignment use / definition state");
     ++matchCount;
 
-    // Memory operations are only meaningful for debug info purposes when the
+    // Memory assignments are only meaningful for debug info purposes when the
     // last encountered variable intrinsic is implicit (referencing memory).
-    if (isa<LoadInst>(valueEvent) || isa<StoreInst>(valueEvent)) {
+    if (assignment->isImplicitMemory()) {
       if (!assignment->meaningful)
         continue;
       // `dbg.declare` is global for the function and sometimes appears after
@@ -198,10 +191,10 @@ void VCHandler::recordValue(ExecutionState &state, ExecutionEvent &execEvent,
     }
   }
 
-  // Memory operations may match multiple assignments
-  // (e.g. several variables derived from the same address)
-  // `dbg.value` events match only once
-  if (isa<DbgValueInst>(valueEvent))
+  // Calls may match multiple assignments
+  // (e.g. same call has several address-taken locals)
+  // Other assignments are expected to uniquely match by event
+  if (!Assignment::isProgramCallEvent(assignmentEvent))
     assert(matchCount <= 1 && "Multiple matching assignments found");
 }
 

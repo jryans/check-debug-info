@@ -1799,7 +1799,7 @@ llvm::SmallString<32> getArgName(const Function *f, const Argument *arg) {
 
 void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
                            std::vector<ref<Expr>> &arguments) {
-  Instruction *i = ki->inst;
+  CallBase *i = cast<CallBase>(ki->inst);
   if (isa_and_nonnull<DbgInfoIntrinsic>(i))
     return;
 
@@ -1922,10 +1922,13 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
           state.addressSpace.getWriteable(memory, pointerState);
       newPointerState->write(offset,
                              pointeeState->read(0, pointeeTypeSizeBits));
+      ref<Expr> newValue = newPointerState->read(offset, pointeeTypeSizeBits);
       if (DebugExecutionTrace)
-        *execTraceText << "Pointee value after reset to symbolic: "
-                       << newPointerState->read(offset, pointeeTypeSizeBits)
+        *execTraceText << "Pointee value after reset to symbolic: " << newValue
                        << "\n";
+
+      interpreterHandler->visitModifiedCallArgument(
+          state, executionEvent, ki, i->getArgOperand(k), newValue);
     }
 
     // TODO: Check for global variable uses...?

@@ -9,6 +9,9 @@
 #ifndef KLEE_INTERPRETER_H
 #define KLEE_INTERPRETER_H
 
+#include "klee/ADT/Ref.h"
+#include "klee/Expr/Expr.h"
+
 #include <map>
 #include <memory>
 #include <set>
@@ -23,6 +26,7 @@ class LLVMContext;
 class Module;
 class raw_ostream;
 class raw_fd_ostream;
+class Value;
 }
 
 namespace klee {
@@ -53,6 +57,11 @@ public:
                                     ExecutionEvent &event, KInstruction *ki) {}
   virtual void visitAfterExecution(ExecutionState &state, ExecutionEvent &event,
                                    KInstruction *ki) {}
+  virtual void visitModifiedCallArgument(ExecutionState &state,
+                                         ExecutionEvent &event,
+                                         KInstruction *ki,
+                                         const llvm::Value *argOperand,
+                                         ref<Expr> value) {}
 
   virtual void processTestCase(const ExecutionState &state,
                                const char *err,

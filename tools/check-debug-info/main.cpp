@@ -216,10 +216,10 @@ bool addAssignment(const StringRef moduleKind,
             isa<GlobalVariable>(*producer) || isa<Constant>(*producer)) &&
            "Unexpected producer type");
   }
-  // Additional checks for definition events (e.g. load from declared address)
-  if (!event->getType()->isVoidTy()) {
-    assert(producers.size() == 1 && "Defintion event with multiple producers");
-    assert(producers[0] == event && "Defintion producer does not match event");
+  // Ensure value assignments do not have address markers
+  if (const auto *valueIntrinsic = dyn_cast<DbgValueInst>(event)) {
+    assert(!valueIntrinsic->getExpression()->startsWithDeref() &&
+           "Value assingment with address marker");
   }
 
   auto eventAsmLn = instrInfo.getInfo(*event).assemblyLine;
@@ -408,24 +408,31 @@ bool gatherMemoryAssignments(const StringRef moduleKind,
         summary &= addAssignment(moduleKind, instrInfo, varIntrinsic, variable,
                                  "Store to " + addressKind, storeInst,
                                  std::move(producers), varToAs);
-      } else if (const auto *loadInst = dyn_cast<LoadInst>(use)) {
-        assert(loadInst->getPointerOperand() == value &&
-               "Address used by non-pointer operand of load");
-        // Load produces the value at the address
-        const Values producers(1, loadInst);
+      } else if (const auto *callInst = dyn_cast<CallInst>(use)) {
+        // Ensure this calls a program function (not an intrinsic)
+        if (!Assignment::isProgramCallEvent(callInst))
+          continue;
+        // Ensure this passes the address as a call argument
+        // We don't want to track called function pointers
+        if (callInst->getCalledOperand() == value)
+          continue;
+        // Track current address value as the "producer" to clarify the argument
+        // of interest for this assignment
+        const Values producers(1, value);
         summary &= addAssignment(moduleKind, instrInfo, varIntrinsic, variable,
-                                 "Load from " + addressKind, loadInst,
+                                 "Call arg using " + addressKind, callInst,
                                  std::move(producers), varToAs);
       } else if (const auto *bitcastInst = dyn_cast<BitCastInst>(use)) {
         values.push_back(bitcastInst);
       } else if (const auto *gepInst = dyn_cast<GetElementPtrInst>(use)) {
         // Only follow one level of `getelementptr` as an attempt to remain in
         // the storage location described by debug info.
+        // TODO: Double check with example that this actually does keep us
+        // within debug-visible storage as desired
         if (gepInst->getPointerOperand() != address)
           continue;
         values.push_back(gepInst);
       }
-      // TODO: Follow calls here instead of loads
     }
   }
 
@@ -469,7 +476,7 @@ bool gatherAssignments(const StringRef moduleKind,
   }
 
   if (const auto *declareIntrinsic = dyn_cast<DbgDeclareInst>(&instruction)) {
-    // Look for memory operations that access the `dbg.declare`'s address
+    // Look for memory assignments that access the `dbg.declare`'s address
     const Value *address = declareIntrinsic->getAddress();
     if (!address)
       return summary;
@@ -493,7 +500,7 @@ bool gatherAssignments(const StringRef moduleKind,
       const Value *address = valueIntrinsic->getValue();
       if (!address)
         return summary;
-      // Look for memory operations that access this as with `dbg.declare`
+      // Look for memory assignments that access this deref'd address
       summary &= gatherMemoryAssignments(moduleKind, instrInfo, valueIntrinsic,
                                          variable, "deref'd address of",
                                          address, varToAs);
@@ -1427,7 +1434,7 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
 
   outs() << "\n"; // ## Function
 
-  outs() << "### Variable events\n\n";
+  outs() << "### Variable assignments\n\n";
 
   VariablesSet beforeVariables;
   VariablesSet afterVariables;
@@ -1468,7 +1475,7 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
     outs() << mismatched.size() << " mismatched\n";
   }
 
-  outs() << "\n"; // End ### Variables
+  outs() << "\n"; // End ### Variable assignments
 
   outs() << "### Symbolic values\n\n";
 

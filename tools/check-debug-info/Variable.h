@@ -9,6 +9,9 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -87,9 +90,6 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &out,
 
 using Exprs = llvm::SmallVector<klee::ref<klee::Expr>, 2>;
 
-// TODO: Rename this to `ValueEvent` or `Sample`...?
-// Loading from memory now manifests as an instance of this, even though that's
-// clearly not an "assignment".
 struct Assignment {
   // TODO: Pointer to the associated `Variable`...?
 
@@ -107,13 +107,13 @@ struct Assignment {
 
   // Everything below is not checked during comparison
 
-  // dbg.declare or dbg.value intrinsic
+  // `dbg.declare` or `dbg.value` intrinsic
   const llvm::DbgVariableIntrinsic *varIntrinsic;
   // Input values used to compute this assignment
   Values producers;
-  // Memory operation or dbg.value intrinsic that defines / uses the producers
-  // Definition events (e.g. load from declared address) are distinguished by
-  // having a single producer which is also the event itself.
+  // Event that defines / uses the producers
+  // Either a `dbg.value` intrinsic
+  // or a memory operation (store, call with address-taken local)
   const llvm::Instruction *event;
   // Event assembly line
   // No longer used for ordering, but still nice for logging
@@ -147,12 +147,27 @@ struct Assignment {
 
   bool operator<=(const Assignment &other) const { return !(other < *this); }
 
-  bool isDefinitionEvent() {
-    return producers.size() == 1 &&
-           producers[0] == llvm::cast<llvm::Value>(event);
+  static bool isExplicitValueEvent(const llvm::Instruction *event) {
+    return llvm::isa<llvm::DbgValueInst>(event);
   }
+  bool isExplicitValue() const { return isExplicitValueEvent(event); }
 
-  bool isUseEvent() { return !isDefinitionEvent(); }
+  static bool isImplicitMemoryEvent(const llvm::Instruction *event) {
+    return !isExplicitValueEvent(event);
+  }
+  bool isImplicitMemory() const { return isImplicitMemoryEvent(event); }
+
+  static bool isProgramCallEvent(const llvm::Instruction *event) {
+    if (const auto *callInst = llvm::dyn_cast<llvm::CallInst>(event)) {
+      // Ensure this calls a program function (not an intrinsic)
+      // (This assumes an intrinsic is unlikely to be called indirectly)
+      return callInst->isIndirectCall() ||
+             callInst->getCalledFunction()->getIntrinsicID() ==
+                 llvm::Intrinsic::not_intrinsic;
+    }
+    return false;
+  }
+  bool isProgramCall() const { return isProgramCallEvent(event); }
 
   bool isValueConsistent(const Variable &var, const llvm::Value *other) const;
 

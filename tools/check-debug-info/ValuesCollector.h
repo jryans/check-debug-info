@@ -96,9 +96,11 @@ public:
   void visitBeforeExecution(klee::ExecutionState &state,
                             klee::ExecutionEvent &execEvent,
                             klee::KInstruction *ki) override;
-  void visitAfterExecution(klee::ExecutionState &state,
-                           klee::ExecutionEvent &execEvent,
-                           klee::KInstruction *ki) override;
+  void visitModifiedCallArgument(klee::ExecutionState &state,
+                                 klee::ExecutionEvent &execEvent,
+                                 klee::KInstruction *ki,
+                                 const llvm::Value *argOperand,
+                                 klee::ref<klee::Expr> symbolicValue) override;
   void recordValue(klee::ExecutionState &state, klee::ExecutionEvent &execEvent,
                    const llvm::Instruction *valueEvent,
                    const llvm::Value *producer,
