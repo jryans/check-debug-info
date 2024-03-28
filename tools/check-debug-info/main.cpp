@@ -1520,7 +1520,7 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
 
   // ### Symbolic values
 
-  outs() << "### Assignments\n\n";
+  outs() << "### Assignment consistency\n\n";
 
   emitReportHeader(afterReport);
 
@@ -1577,7 +1577,7 @@ bool checkFunction(SmallVector<ValuesCollector, 2> &collectors,
                               beforeVToEncToA, beforeExecutionValidity,
                               functionName, afterReport, functionStats);
 
-  // End ### Assignments
+  // End ### Assignment consistency
 
   outs() << "### Summary\n\n";
 
