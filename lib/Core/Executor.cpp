@@ -1877,8 +1877,12 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
         continue;
       }
       // Preserve null pointer values
-      if (address->isZero())
+      if (address->isZero()) {
+        if (DebugExecutionTrace)
+          *execTraceText << "Ignoring arg `" << argName
+                         << "`, pointer is null\n";
         continue;
+      }
       ObjectPair op;
       // Ignore external pointers
       // TODO: Carry external flag through execution to ensure this
