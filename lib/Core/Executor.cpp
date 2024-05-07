@@ -4760,6 +4760,13 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
 
   assert(!valueType->isVoidTy() && !valueType->isVectorTy() &&
          "Unexpected type when building symbolic value");
+
+  // C-style arrays as function arguments / return values are unsized
+  // Represented as pointers in C semantics and LLVM IR
+  // Array types in IR only expected to appear within aggregate types
+  assert((!valueType->isArrayTy() || depth > 1) &&
+         "Unexpected array type as top-level value");
+
   if (const auto *arrayType = dyn_cast<ArrayType>(valueType)) {
     auto *containedType = arrayType->getElementType();
     assert(!containedType->isPointerTy() &&
