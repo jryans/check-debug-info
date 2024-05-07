@@ -4804,6 +4804,7 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
   }
 
   // Examine unsized types in more detail
+  // JRS: May need to adjust this when supporting variable-length arrays
   if (!valueType->isSized() && !valueType->isFunctionTy()) {
     // For pointers to opaque structs, assume `nullptr` is good enough
     if (auto *structType = dyn_cast<StructType>(valueType)) {
