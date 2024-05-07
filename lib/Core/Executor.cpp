@@ -4756,6 +4756,8 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
                                           const llvm::Twine &valueName,
                                           const unsigned count,
                                           const unsigned depth) {
+  assert(depth >= 1 && "Depth counter is 1-based");
+
   assert(!valueType->isVoidTy() && !valueType->isVectorTy() &&
          "Unexpected type when building symbolic value");
   if (const auto *arrayType = dyn_cast<ArrayType>(valueType)) {
