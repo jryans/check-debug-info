@@ -355,7 +355,7 @@ KleeHandler::KleeHandler(int argc, char **argv)
 
   if (dir_given) {
     // OutputDir
-    if (mkdir(directory.c_str(), 0775) < 0)
+    if (!sys::fs::exists(directory) && mkdir(directory.c_str(), 0775) < 0)
       klee_error("cannot create \"%s\": %s", directory.c_str(), strerror(errno));
 
     m_outputDirectory = directory;
