@@ -149,7 +149,7 @@ namespace {
   cl::opt<bool>
   OptimizeModule("optimize",
                  cl::desc("Optimize the code before execution (default=false)."),
-		 cl::init(false),
+                 cl::init(false),
                  cl::cat(StartCat));
 
   cl::opt<bool>
