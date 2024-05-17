@@ -208,7 +208,7 @@ bool KModule::link(std::vector<std::unique_ptr<llvm::Module>> &modules,
   module = std::unique_ptr<llvm::Module>(
       klee::linkModules(modules, entryPoint, error));
   if (!module)
-    klee_error("Could not link KLEE files %s", error.c_str());
+    klee_error("Could not link KLEE files: %s", error.c_str());
 
   targetData = std::unique_ptr<llvm::DataLayout>(new DataLayout(module.get()));
 
