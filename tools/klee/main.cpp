@@ -1457,8 +1457,12 @@ void runFunction(KleeHandler *handler, Interpreter *interpreter, Function *fn,
 
   // In independent function mode, store each function's run in separate
   // directory nested under the main output directory
-  if (IndependentFunctions)
-    handler->setOutputTopic(fn->getName());
+  if (IndependentFunctions) {
+    const auto fnName = fn->getName();
+    handler->setOutputTopic(fnName);
+    llvm::errs() << "KLEE: Running `" << fnName
+                 << "` in independent function mode\n";
+  }
 
   // JRS: Test replay code paths
   if (ReplayPathFile != "") {
