@@ -25,6 +25,7 @@
 #include "klee/Support/RuntimeHandling.h"
 #include "klee/System/Time.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/IRBuilder.h"
@@ -129,6 +130,12 @@ namespace {
              cl::desc("Function in which to start execution (default=main)"),
              cl::init("main"),
              cl::cat(StartCat));
+
+  cl::opt<bool>
+  IndependentFunctions("independent-functions",
+                       cl::desc("Isolates each function for independent analysis (default=false)."),
+                       cl::init(false),
+                       cl::cat(StartCat));
 
   cl::opt<std::string>
   RunInDir("run-in-dir",
@@ -297,6 +304,9 @@ private:
   std::unique_ptr<llvm::raw_ostream> m_infoFile;
 
   SmallString<128> m_outputDirectory;
+  // Optional topic name which creates a subdirectory
+  // beneath the output directory
+  SmallString<128> m_outputTopic;
 
   unsigned m_numTotalTests;     // Number of tests received from the interpreter
   unsigned m_numGeneratedTests; // Number of tests successfully generated
@@ -310,6 +320,10 @@ private:
 public:
   KleeHandler(int argc, char **argv);
   ~KleeHandler();
+
+  void setOutputTopic(const StringRef topic);
+
+  void reset();
 
   llvm::raw_ostream &getInfoStream() const { return *m_infoFile; }
   /// Returns the number of test cases successfully generated so far
@@ -341,7 +355,7 @@ public:
 
 KleeHandler::KleeHandler(int argc, char **argv)
     : m_interpreter(0), m_pathWriter(0), m_symPathWriter(0),
-      m_outputDirectory(), m_numTotalTests(0), m_numGeneratedTests(0),
+      m_numTotalTests(0), m_numGeneratedTests(0),
       m_pathsCompleted(0), m_pathsExplored(0), m_argc(argc), m_argv(argv) {
 
   // create output directory (OutputDir or "klee-out-<i>")
@@ -416,9 +430,44 @@ KleeHandler::~KleeHandler() {
   fclose(klee_message_file);
 }
 
+void KleeHandler::setOutputTopic(const StringRef topic) {
+  m_outputTopic = topic;
+
+  // Create subdirectory if needed
+  SmallString<128> topicPath = m_outputDirectory;
+  if (!topic.empty())
+    sys::path::append(topicPath, topic);
+  if (!sys::fs::exists(topicPath) && mkdir(topicPath.c_str(), 0775) < 0)
+    klee_error("cannot create \"%s\": %s", topicPath.c_str(), strerror(errno));
+
+  // Close and reopen files
+
+  fclose(klee_warning_file);
+  klee_warning_file = nullptr;
+  std::string file_path = getOutputFilename("warnings.txt");
+  if ((klee_warning_file = fopen(file_path.c_str(), "w")) == NULL)
+    klee_error("cannot open file \"%s\": %s", file_path.c_str(), strerror(errno));
+
+  fclose(klee_message_file);
+  klee_message_file = nullptr;
+  file_path = getOutputFilename("messages.txt");
+  if ((klee_message_file = fopen(file_path.c_str(), "w")) == NULL)
+    klee_error("cannot open file \"%s\": %s", file_path.c_str(), strerror(errno));
+
+  m_infoFile = openOutputFile("info");
+}
+
+void KleeHandler::reset() {
+  m_numTotalTests = 0;
+  m_numGeneratedTests = 0;
+  m_pathsCompleted = 0;
+  m_pathsExplored = 0;
+}
+
 void KleeHandler::setInterpreter(Interpreter *i) {
   m_interpreter = i;
 
+  // JRS: Adjust these for multiple functions
   if (WritePaths) {
     m_pathWriter = new TreeStreamWriter(getOutputFilename("paths.ts"));
     assert(m_pathWriter->good());
@@ -434,7 +483,9 @@ void KleeHandler::setInterpreter(Interpreter *i) {
 
 std::string KleeHandler::getOutputFilename(const std::string &filename) {
   SmallString<128> path = m_outputDirectory;
-  sys::path::append(path,filename);
+  if (!m_outputTopic.empty())
+    sys::path::append(path, m_outputTopic);
+  sys::path::append(path, filename);
   return path.c_str();
 }
 
@@ -1074,6 +1125,10 @@ linkWithUclibc(StringRef libDir, std::string opt_suffix,
                FortifyPath.c_str(), errorMsg.c_str());
 }
 
+void runFunction(KleeHandler *handler, Interpreter *interpreter, Function *fn,
+                 int pArgc = 0, char **pArgv = nullptr,
+                 char **pEnvp = nullptr);
+
 int main(int argc, char **argv, char **envp) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
 
@@ -1087,6 +1142,8 @@ int main(int argc, char **argv, char **envp) {
 
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal(argv[0]);
+
+  // TODO: Error if entry point supplied in independent function mode
 
   if (EntryPoint.empty()) {
     klee_error("entry-point cannot be empty");
@@ -1204,8 +1261,18 @@ int main(int argc, char **argv, char **envp) {
   // Push the module as the first entry
   loadedModules.emplace_back(std::move(M));
 
+  // JRS: Do something better here...?
+  std::string moduleEntryPoint = EntryPoint;
+  if (IndependentFunctions) {
+    // Use first function as entry point
+    // (Limits KLEE's linking to only modules with used symbols)
+    const auto &firstFunction = mainModule->getFunctionList().front();
+    moduleEntryPoint = firstFunction.getName().str();
+  }
+
   std::string LibraryDir = getRuntimeLibraryPath(argv[0]);
-  Interpreter::ModuleOptions Opts(LibraryDir.c_str(), EntryPoint, opt_suffix,
+  Interpreter::ModuleOptions Opts(LibraryDir.c_str(), moduleEntryPoint,
+                                  opt_suffix,
                                   /*Optimize=*/OptimizeModule,
                                   /*CheckDivZero=*/CheckDivZero,
                                   /*CheckOvershift=*/CheckOvershift);
@@ -1283,6 +1350,7 @@ int main(int argc, char **argv, char **envp) {
   }
 
   // FIXME: Change me to std types.
+  // JRS: Only do this in whole program mode...?
   int pArgc;
   char **pArgv;
   char **pEnvp;
@@ -1321,40 +1389,83 @@ int main(int argc, char **argv, char **envp) {
     pArgv[i] = pArg;
   }
 
-  std::vector<bool> replayPath;
-
-  if (ReplayPathFile != "") {
-    KleeHandler::loadPathFile(ReplayPathFile, replayPath);
-  }
-
   Interpreter::InterpreterOptions IOpts;
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
+  IOpts.IndependentFunctions = IndependentFunctions;
   KleeHandler *handler = new KleeHandler(pArgc, pArgv);
   Interpreter *interpreter =
     theInterpreter = Interpreter::create(ctx, IOpts, handler);
   assert(interpreter);
   handler->setInterpreter(interpreter);
 
+  auto finalModule = interpreter->setModule(loadedModules, Opts);
+
+  externalsAndGlobalsCheck(finalModule);
+
   for (int i=0; i<argc; i++) {
     handler->getInfoStream() << argv[i] << (i+1<argc ? " ":"\n");
   }
   handler->getInfoStream() << "PID: " << getpid() << "\n";
 
-  // Get the desired main function.  klee_main initializes uClibc
-  // locale and other data and then calls main.
+  if (IndependentFunctions) {
+    // In independent function mode, each defined function in the module is a
+    // separate execution starting point.
+    auto functionFilter = [](const Function &f) {
+      if (f.isDeclaration())
+        return false;
+      const auto name = f.getName();
+      if (name.startswith("klee_") || name.startswith("mem") ||
+          name.equals("main"))
+        return false;
+      return true;
+    };
 
-  auto finalModule = interpreter->setModule(loadedModules, Opts);
-  Function *mainFn = finalModule->getFunction(EntryPoint);
-  if (!mainFn) {
-    klee_error("Entry function '%s' not found in module.", EntryPoint.c_str());
+    const auto definedFunctions =
+        make_filter_range(finalModule->getFunctionList(), functionFilter);
+    for (Function &fn : definedFunctions) {
+      runFunction(handler, interpreter, &fn);
+    }
+  } else {
+    // In whole program mode, execution begins only once from the selected entry
+    // point function (usually `main`).
+    Function *fn = finalModule->getFunction(EntryPoint);
+    if (!fn) {
+      klee_error("Entry function '%s' not found in module.", EntryPoint.c_str());
+    }
+    runFunction(handler, interpreter, fn, pArgc, pArgv, pEnvp);
   }
 
-  externalsAndGlobalsCheck(finalModule);
+  // Free all the args.
+  for (unsigned i=0; i<InputArgv.size()+1; i++)
+    delete[] pArgv[i];
+  delete[] pArgv;
 
+  delete interpreter;
+  delete handler;
+
+  return 0;
+}
+
+void runFunction(KleeHandler *handler, Interpreter *interpreter, Function *fn,
+                 int pArgc, char **pArgv, char **pEnvp) {
+  // Stats manager holds onto data after execution
+  // Reset it to get ready for the next run
+  theStatisticManager->reset();
+
+  // Reset handler state
+  handler->reset();
+
+  // In independent function mode, store each function's run in separate
+  // directory nested under the main output directory
+  if (IndependentFunctions)
+    handler->setOutputTopic(fn->getName());
+
+  // JRS: Test replay code paths
   if (ReplayPathFile != "") {
+    std::vector<bool> replayPath;
+    KleeHandler::loadPathFile(ReplayPathFile, replayPath);
     interpreter->setReplayPath(&replayPath);
   }
-
 
   auto startTime = std::time(nullptr);
   { // output clock info and start time
@@ -1405,7 +1516,8 @@ int main(int argc, char **argv, char **envp) {
                    << " bytes)"
                    << " (" << ++i << "/" << kTestFiles.size() << ")\n";
       // XXX should put envp in .ktest ?
-      interpreter->runFunctionAsMain(mainFn, out->numArgs, out->args, pEnvp);
+      // JRS: Support replay in independent mode...?
+      interpreter->runFunctionAsMain(fn, out->numArgs, out->args, pEnvp);
       if (interrupted) break;
     }
     interpreter->setReplayKTest(0);
@@ -1454,7 +1566,10 @@ int main(int argc, char **argv, char **envp) {
                    sys::StrError(errno).c_str());
       }
     }
-    interpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
+    if (IndependentFunctions)
+      interpreter->runFunction(fn);
+    else
+      interpreter->runFunctionAsMain(fn, pArgc, pArgv, pEnvp);
 
     while (!seeds.empty()) {
       kTest_free(seeds.back());
@@ -1480,13 +1595,6 @@ int main(int argc, char **argv, char **envp) {
             handler->getInfoStream() << endInfo.str();
     handler->getInfoStream().flush();
   }
-
-  // Free all the args.
-  for (unsigned i=0; i<InputArgv.size()+1; i++)
-    delete[] pArgv[i];
-  delete[] pArgv;
-
-  delete interpreter;
 
   uint64_t queries =
     *theStatisticManager->getStatisticByName("Queries");
@@ -1541,8 +1649,4 @@ int main(int argc, char **argv, char **envp) {
     llvm::errs().resetColor();
 
   handler->getInfoStream() << stats.str();
-
-  delete handler;
-
-  return 0;
 }
