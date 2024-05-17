@@ -321,9 +321,8 @@ void ValuesCollector::prepare(const StringRef moduleDir,
   interpreter->setModule(modules, moduleOpts);
 }
 
-void ValuesCollector::collect(const llvm::StringRef functionName,
-                              const llvm::StringRef outputDir,
-                              VAs *varsAssignments) {
+void ValuesCollector::collect(const StringRef functionName,
+                              const StringRef outputDir, VAs *varsAssignments) {
   // Stats manager holds onto data after execution
   // Reset it to get ready for the next run
   theStatisticManager->reset();
