@@ -392,8 +392,8 @@ cl::opt<bool> OnlyUncoveredBranchTargets(
 
 cl::opt<unsigned> MaxSymbolicValueDepth(
     "max-symbolic-value-depth",
-    cl::desc("Only create this many levels when building symbolic data (default=2)"),
-    cl::init(2),
+    cl::desc("Only create this many levels when building symbolic data (default=3)"),
+    cl::init(3),
     cl::cat(TerminationCat));
 
 /*** Debugging options ***/
