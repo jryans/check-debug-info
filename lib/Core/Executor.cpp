@@ -4624,7 +4624,11 @@ void Executor::executeMemoryOperation(ExecutionState &state,
   bool incomplete = state.addressSpace.resolve(state, solver, address, rl,
                                                0, coreSolverTimeout);
   solver->setTimeout(time::Span());
-  
+
+  if (DebugExecutionTrace && !rl.empty())
+    *execTraceText << "Resolving symbolic address returned " << rl.size()
+                   << " potential states to visit\n";
+
   // XXX there is some query wasteage here. who cares?
   ExecutionState *unbound = &state;
   
