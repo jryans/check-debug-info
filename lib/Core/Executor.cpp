@@ -2789,6 +2789,9 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
       executeCall(state, ki, f, arguments);
     } else {
+      if (DebugExecutionTrace)
+        *execTraceText << "Resolving symbolic function pointer\n";
+
       ref<Expr> v = eval(ki, 0, state).value;
 
       ExecutionState *free = &state;
