@@ -4757,6 +4757,30 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
   }
 }
 
+ref<klee::ConstantExpr> Executor::buildPointerToSymbolicValue(
+    ExecutionState &state, const llvm::Value *allocSite,
+    const llvm::PointerType *ptrType, const llvm::Twine &ptrName,
+    const unsigned depth) {
+  // Build the pointee value
+  // TODO: Add the nullptr case as well...?
+  // TODO: Add the array case as well...?
+  auto *pointeeType = ptrType->getElementType();
+  // Default allocation leaves room for functions with pointer math
+  // (We aren't trying to detect OOB memory safety violations like traditional
+  // KLEE usage, so really this could be any number.)
+  // TODO: Switch to lazy allocation instead of these arbitrary numbers
+  unsigned pointeeCount = 2;
+  // Allocate more room for byte arrays
+  if (pointeeType == Type::getInt8Ty(pointeeType->getContext()))
+    pointeeCount = 32;
+  ObjectState *pointeeState =
+      buildSymbolicValue(state, allocSite, pointeeType, ptrName + ".deref",
+                         pointeeCount, depth + 1);
+  // Store constant pointer value to avoid symbolic memory accesses
+  return pointeeState ? pointeeState->getObject()->getBaseExpr()
+                      : Expr::createPointer(0);
+}
+
 ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
                                           const llvm::Value *allocSite,
                                           llvm::Type *valueType,
@@ -4841,24 +4865,9 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
       bindObjectInState(state, valueMemory, /*isLocal=*/true, array);
 
   if (const auto *ptrType = dyn_cast<PointerType>(valueType)) {
-    // Build the pointee value
-    // TODO: Add the nullptr case as well...?
-    // TODO: Add the array case as well...?
-    auto *pointeeType = ptrType->getElementType();
-    // Default allocation leaves room for functions with pointer math
-    // (We aren't trying to detect OOB memory safety violations like traditional
-    // KLEE usage, so really this could be any number.)
-    unsigned pointeeCount = 2;
-    // Allocate more room for byte arrays
-    if (pointeeType == Type::getInt8Ty(pointeeType->getContext()))
-      pointeeCount = 32;
-    ObjectState *pointeeState =
-        buildSymbolicValue(state, allocSite, pointeeType, valueName + ".deref",
-                           pointeeCount, depth + 1);
-    // Store constant pointer value to avoid symbolic memory accesses
-    ref<ConstantExpr> ptr = pointeeState
-                                ? pointeeState->getObject()->getBaseExpr()
-                                : Expr::createPointer(0);
+    // Build concrete pointer to symbolic pointee value
+    ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
+        state, allocSite, ptrType, valueName, depth);
     valueState->write(0, ptr);
   } else if (auto *structType = dyn_cast<StructType>(valueType)) {
     const StructLayout *layout =
@@ -4867,24 +4876,11 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     for (unsigned i = 0, e = structType->getNumElements(); i < e; ++i) {
       const auto *elementType = structType->getElementType(i);
       // Check each struct element for pointers
-      // TODO: Deduplicate with the block above
       if (const auto *ptrType = dyn_cast<PointerType>(elementType)) {
-        // Build the pointee value
-        // TODO: Add the nullptr case as well...?
-        // TODO: Add the array case as well...?
-        auto *pointeeType = ptrType->getElementType();
-        unsigned pointeeCount = 1;
-        // Allocate more room for byte arrays
-        if (pointeeType == Type::getInt8Ty(pointeeType->getContext()))
-          pointeeCount = 32;
-        ObjectState *pointeeState =
-            buildSymbolicValue(state, allocSite, pointeeType,
-                               valueName + ".e" + std::to_string(i) + ".deref",
-                               pointeeCount, depth + 1);
-        // Store constant pointer value to avoid symbolic memory accesses
-        ref<ConstantExpr> ptr = pointeeState
-                                    ? pointeeState->getObject()->getBaseExpr()
-                                    : Expr::createPointer(0);
+        // Build concrete pointer to symbolic pointee value
+        ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
+            state, allocSite, ptrType, valueName + ".e" + std::to_string(i),
+            depth);
         valueState->write(layout->getElementOffset(i), ptr);
       } else {
         partiallySymbolic = true;

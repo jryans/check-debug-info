@@ -62,6 +62,7 @@ namespace llvm {
 namespace klee {  
   class Array;
   struct Cell;
+  class ConstantExpr;
   class ExecutionState;
   class ExternalDispatcher;
   class Expr;
@@ -347,6 +348,13 @@ private:
 
   void executeMakeSymbolic(ExecutionState &state, const MemoryObject *mo,
                            const std::string &name);
+
+  /// Build concrete pointer to symbolic pointee value
+  ref<klee::ConstantExpr>
+  buildPointerToSymbolicValue(ExecutionState &state,
+                              const llvm::Value *allocSite,
+                              const llvm::PointerType *ptrType,
+                              const llvm::Twine &ptrName, const unsigned depth);
 
   /// Build a symbolic value for a given LLVM type. The high-level goal is for
   /// data to be symbolic, but any pointers are made concrete to avoid symbolic
