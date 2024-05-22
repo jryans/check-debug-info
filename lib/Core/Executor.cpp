@@ -4757,6 +4757,29 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
   }
 }
 
+template <typename Handler>
+bool Executor::findPointersInAggregate(llvm::Type *valueType, Handler h) {
+  // As a side task, track whether every element is a pointer
+  bool isAllPointers = true;
+
+  if (auto *structType = dyn_cast<StructType>(valueType)) {
+    const StructLayout *layout =
+        kmodule->targetData->getStructLayout(structType);
+    // Check each struct element for pointers
+    for (unsigned i = 0, e = structType->getNumElements(); i < e; ++i) {
+      const auto *elementType = structType->getElementType(i);
+      if (const auto *ptrType = dyn_cast<PointerType>(elementType)) {
+        // Provide handler the pointer type, name, and offset
+        h(ptrType, ".e" + std::to_string(i), layout->getElementOffset(i));
+      } else {
+        isAllPointers = false;
+      }
+    }
+  }
+
+  return isAllPointers;
+}
+
 ref<klee::ConstantExpr> Executor::buildPointerToSymbolicValue(
     ExecutionState &state, const llvm::Value *allocSite,
     const llvm::PointerType *ptrType, const llvm::Twine &ptrName,
@@ -4870,23 +4893,16 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
         state, allocSite, ptrType, valueName, depth);
     valueState->write(0, ptr);
   } else if (auto *structType = dyn_cast<StructType>(valueType)) {
-    const StructLayout *layout =
-        kmodule->targetData->getStructLayout(structType);
-    bool partiallySymbolic = false;
-    for (unsigned i = 0, e = structType->getNumElements(); i < e; ++i) {
-      const auto *elementType = structType->getElementType(i);
-      // Check each struct element for pointers
-      if (const auto *ptrType = dyn_cast<PointerType>(elementType)) {
-        // Build concrete pointer to symbolic pointee value
-        ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
-            state, allocSite, ptrType, valueName + ".e" + std::to_string(i),
-            depth);
-        valueState->write(layout->getElementOffset(i), ptr);
-      } else {
-        partiallySymbolic = true;
-      }
-    }
-    if (partiallySymbolic) {
+    bool isAllPointers = findPointersInAggregate(
+        structType, [&](const auto *ptrType, const llvm::Twine &relName,
+                        const auto offsetBytes) {
+          // Build concrete pointer to symbolic pointee value
+          ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
+              state, allocSite, ptrType, valueName + relName, depth);
+          valueState->write(offsetBytes, ptr);
+        });
+    // If some elements are not pointers, then there is some symbolic content
+    if (!isAllPointers) {
       state.addSymbolic(valueMemory, array);
     }
   } else {
