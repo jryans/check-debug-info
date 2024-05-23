@@ -4775,6 +4775,19 @@ bool Executor::findPointersInAggregate(llvm::Type *valueType, Handler h) {
         isAllPointers = false;
       }
     }
+  } else if (auto *arrayType = dyn_cast<ArrayType>(valueType)) {
+    auto *elementType = arrayType->getElementType();
+    const auto elementSizeBytes =
+        kmodule->targetData->getTypeAllocSize(elementType);
+    // Check each array element for pointers
+    for (unsigned i = 0, e = arrayType->getNumElements(); i < e; ++i) {
+      if (const auto *ptrType = dyn_cast<PointerType>(elementType)) {
+        // Provide handler the pointer type, name, and offset
+        h(ptrType, ".e" + std::to_string(i), i * elementSizeBytes);
+      } else {
+        isAllPointers = false;
+      }
+    }
   }
 
   return isAllPointers;
@@ -4896,10 +4909,10 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
         state, allocSite, ptrType, valueName, depth);
     valueState->write(0, ptr);
-  } else if (auto *structType = dyn_cast<StructType>(valueType)) {
+  } else if (isa<StructType>(valueType) || isa<ArrayType>(valueType)) {
     bool isAllPointers = findPointersInAggregate(
-        structType, [&](const auto *ptrType, const llvm::Twine &relName,
-                        const auto offsetBytes) {
+        valueType, [&](const auto *ptrType, const llvm::Twine &relName,
+                       const auto offsetBytes) {
           // Build concrete pointer to symbolic pointee value
           ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
               state, allocSite, ptrType, valueName + relName, depth);
