@@ -4838,15 +4838,19 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     // Specific cases are handled in more detail below
     storeSizeBytes = 0;
   } else {
+    // For calculating the size of memory needed to hold the value overall,
+    // LLVM's "store size" (which may be smaller than aligned "alloc size")
+    // seems like the best fit.
     storeSizeBytes = kmodule->targetData->getTypeStoreSize(valueType);
   }
   storeSizeBytes *= count;
+  unsigned storeSizeBits = storeSizeBytes * 8;
 
   if (DebugExecutionTrace) {
     *execTraceText << "Building symbolic value for " << *valueType;
     if (count > 1)
       *execTraceText << " x " << count;
-    *execTraceText << " " << valueName << " (" << storeSizeBytes * 8 << "b)…\n";
+    *execTraceText << " " << valueName << " (" << storeSizeBits << "b)…\n";
   }
 
   // Check depth
@@ -4920,17 +4924,10 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
   }
 
   if (DebugExecutionTrace) {
-    unsigned typeSizeBits;
-    if (valueType->isFunctionTy()) {
-      typeSizeBits = 64;
-    } else {
-      typeSizeBits = kmodule->targetData->getTypeSizeInBits(valueType);
-    }
-    typeSizeBits *= count;
     *execTraceText << "Built symbolic value for " << valueName;
     if (count > 1)
       *execTraceText << " x " << count;
-    *execTraceText << ": " << valueState->read(0, typeSizeBits) << "\n";
+    *execTraceText << ": " << valueState->read(0, storeSizeBits) << "\n";
   }
 
   return valueState;
