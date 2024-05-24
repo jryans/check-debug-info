@@ -4758,7 +4758,9 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
 }
 
 template <typename Handler>
-bool Executor::findPointersInAggregate(llvm::Type *valueType, Handler h) {
+bool Executor::findPointersInAggregate(llvm::Type *valueType, Handler h,
+                                       const llvm::Twine &relPath,
+                                       const unsigned relOffset) {
   // As a side task, track whether every element is a pointer
   bool isAllPointers = true;
 
@@ -4767,10 +4769,15 @@ bool Executor::findPointersInAggregate(llvm::Type *valueType, Handler h) {
         kmodule->targetData->getStructLayout(structType);
     // Check each struct element for pointers
     for (unsigned i = 0, e = structType->getNumElements(); i < e; ++i) {
-      const auto *elementType = structType->getElementType(i);
+      auto *elementType = structType->getElementType(i);
+      const auto &elemPath = relPath + ".e" + std::to_string(i);
+      const auto elemOffset = relOffset + layout->getElementOffset(i);
       if (const auto *ptrType = dyn_cast<PointerType>(elementType)) {
         // Provide handler the pointer type, name, and offset
-        h(ptrType, ".e" + std::to_string(i), layout->getElementOffset(i));
+        h(ptrType, elemPath, elemOffset);
+      } else if (isa<StructType>(elementType) || isa<ArrayType>(elementType)) {
+        isAllPointers &=
+            findPointersInAggregate(elementType, h, elemPath, elemOffset);
       } else {
         isAllPointers = false;
       }
@@ -4781,9 +4788,14 @@ bool Executor::findPointersInAggregate(llvm::Type *valueType, Handler h) {
         kmodule->targetData->getTypeAllocSize(elementType);
     // Check each array element for pointers
     for (unsigned i = 0, e = arrayType->getNumElements(); i < e; ++i) {
+      const auto &elemPath = relPath + ".e" + std::to_string(i);
+      const auto elemOffset = relOffset + (i * elementSizeBytes);
       if (const auto *ptrType = dyn_cast<PointerType>(elementType)) {
         // Provide handler the pointer type, name, and offset
-        h(ptrType, ".e" + std::to_string(i), i * elementSizeBytes);
+        h(ptrType, elemPath, elemOffset);
+      } else if (isa<StructType>(elementType) || isa<ArrayType>(elementType)) {
+        isAllPointers &=
+            findPointersInAggregate(elementType, h, elemPath, elemOffset);
       } else {
         isAllPointers = false;
       }

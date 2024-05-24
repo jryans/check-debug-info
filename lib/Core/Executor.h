@@ -350,7 +350,9 @@ private:
                            const std::string &name);
 
   template <typename Handler>
-  bool findPointersInAggregate(llvm::Type *valueType, Handler h);
+  bool findPointersInAggregate(llvm::Type *valueType, Handler h,
+                               const llvm::Twine &relPath = "",
+                               const unsigned relOffset = 0);
 
   /// Build concrete pointer to symbolic pointee value
   ref<klee::ConstantExpr>
