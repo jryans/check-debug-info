@@ -677,11 +677,14 @@ void Executor::allocateGlobalObjects(ExecutionState &state) {
   }
 
 #ifndef WINDOWS
-  int *errno_addr = getErrnoLocation(state);
-  MemoryObject *errnoObj = addExternalObject(
-      state, (void *)errno_addr, sizeof *errno_addr, false, "errno");
-  // Copy values from and to program space explicitly
-  errnoObj->isUserSpecified = true;
+  // Create `errno` eagerly in whole program mode only
+  if (!interpreterOpts.IndependentFunctions) {
+    int *errno_addr = getErrnoLocation(state);
+    MemoryObject *errnoObj = addExternalObject(
+        state, (void *)errno_addr, sizeof *errno_addr, false, "errno");
+    // Copy values from and to program space explicitly
+    errnoObj->isUserSpecified = true;
+  }
 #endif
 
   // Disabled, we don't want to promote use of live externals.
