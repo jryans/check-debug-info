@@ -4669,6 +4669,21 @@ void Executor::executeMemoryOperation(ExecutionState &state,
 
     StatePair branches = fork(*unbound, inBounds, true, BranchType::MemOp);
     ExecutionState *bound = branches.first;
+    unbound = branches.second;
+
+    if (DebugExecutionTrace) {
+      *execTraceText << "Fork determined:\n";
+      *execTraceText << "  In-bounds:     ";
+      if (bound)
+        *execTraceText << "s" << bound->id << "\n";
+      else
+        *execTraceText << "invalid state\n";
+      *execTraceText << "  Out-of-bounds: ";
+      if (unbound)
+        *execTraceText << "s" << unbound->id << "\n";
+      else
+        *execTraceText << "invalid state\n";
+    }
 
     // bound can be 0 on failure or overlapped 
     if (bound) {
@@ -4686,7 +4701,6 @@ void Executor::executeMemoryOperation(ExecutionState &state,
       }
     }
 
-    unbound = branches.second;
     if (!unbound)
       break;
   }
