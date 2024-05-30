@@ -1819,6 +1819,24 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
       *execTraceText << "Function independent mode active, skipping call to `"
                      << f->getName() << "`…\n";
 
+    // Any additional variadic arguments are currently ignored
+    // TODO: Process variadic pointer arguments similar to the loop below
+    if (DebugExecutionTrace && f->isVarArg())
+      *execTraceText << "Function to skip has variable number of arguments, "
+                     << "ignoring any additional args\n";
+
+    // Check that arguments passed in the call match the called function
+    unsigned callingArgs = arguments.size();
+    unsigned funcArgs = f->arg_size();
+    if (callingArgs < funcArgs) {
+      terminateStateOnUserError(state,
+                                "calling function with too few arguments");
+      return;
+    }
+    if (DebugExecutionTrace && !f->isVarArg() && callingArgs > funcArgs)
+      *execTraceText << "Function caller passed extra arguments, "
+                     << "ignoring any additional args\n";
+
     // If there's a return value, make it symbolic
     Type *returnType = f->getReturnType();
     if (!returnType->isVoidTy()) {
@@ -1831,15 +1849,9 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
       bindLocal(ki, state, argState->read(0, returnTypeSizeBits));
     }
 
-    // Any additional variadic arguments are currently ignored
-    // TODO: Process variadic pointer arguments similar to the loop below
-    if (DebugExecutionTrace && f->isVarArg())
-      *execTraceText << "Function to skip has variable number of arguments, "
-                     << "ignoring any additional args\n";
-
     // If there are non-const pointer arguments, reset their storage to
     // symbolic (since the callee may have written something)
-    for (unsigned k = 0, numArgs = f->arg_size(); k < numArgs; ++k) {
+    for (unsigned k = 0; k < funcArgs; ++k) {
       const Argument *arg = f->getArg(k);
       llvm::Type *argType = arg->getType();
 
