@@ -4642,7 +4642,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
 
   if (DebugExecutionTrace && !rl.empty())
     *execTraceText << "Resolving symbolic address returned " << rl.size()
-                   << " potential states to visit\n";
+                   << " potential additional states to visit\n";
 
   // XXX there is some query wasteage here. who cares?
   ExecutionState *unbound = &state;
@@ -4651,7 +4651,19 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     const MemoryObject *mo = i->first;
     const ObjectState *os = i->second;
     ref<Expr> inBounds = mo->getBoundsCheckPointer(address, bytes);
-    
+
+    if (DebugExecutionTrace) {
+      std::string allocInfo;
+      mo->getAllocInfo(allocInfo);
+      *execTraceText
+          << "Potential in-bounds object found via symbolic resolution\n"
+          << "  " << allocInfo << "\n"
+          << "  Name: " << mo->name << "\n"
+          << "  Base: " << format("0x%08zX", mo->address)
+          << ", size: " << mo->size << "\n"
+          << "  Bounds check: " << inBounds << "\n";
+    }
+
     StatePair branches = fork(*unbound, inBounds, true, BranchType::MemOp);
     ExecutionState *bound = branches.first;
 
