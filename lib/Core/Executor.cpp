@@ -4798,6 +4798,7 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
   }
 }
 
+// JRS: Currently unused
 template <typename Handler>
 bool Executor::findPointersInAggregate(llvm::Type *valueType, Handler h,
                                        const llvm::Twine &relPath,
@@ -4846,6 +4847,7 @@ bool Executor::findPointersInAggregate(llvm::Type *valueType, Handler h,
   return isAllPointers;
 }
 
+// JRS: Currently unused
 ref<klee::ConstantExpr> Executor::buildPointerToSymbolicValue(
     ExecutionState &state, const llvm::Value *allocSite,
     const llvm::PointerType *ptrType, const llvm::Twine &ptrName,
@@ -4957,29 +4959,11 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
   ObjectState *valueState =
       bindObjectInState(state, valueMemory, /*isLocal=*/true, array);
 
-  if (const auto *ptrType = dyn_cast<PointerType>(valueType)) {
-    // Build concrete pointer to symbolic pointee value
-    ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
-        state, allocSite, ptrType, valueName, depth);
-    valueState->write(0, ptr);
-  } else if (isa<StructType>(valueType) || isa<ArrayType>(valueType)) {
-    bool isAllPointers = findPointersInAggregate(
-        valueType, [&](const auto *ptrType, const llvm::Twine &relName,
-                       const auto offsetBytes) {
-          // Build concrete pointer to symbolic pointee value
-          ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
-              state, allocSite, ptrType, valueName + relName, depth);
-          valueState->write(offsetBytes, ptr);
-        });
-    // If some elements are not pointers, then there is some symbolic content
-    if (!isAllPointers) {
-      state.addSymbolic(valueMemory, array);
-    }
-  } else {
-    // Other values are symbolic
-    state.addSymbolic(valueMemory, array);
-  }
+  // Add value to symbolics
+  state.addSymbolic(valueMemory, array);
 
+  // JRS: This is probably being skipped at the moment, since we would need to
+  // descend into the function pointer first...
   if (auto *funcType = dyn_cast<FunctionType>(valueType)) {
     auto *func =
         Function::Create(funcType, GlobalValue::ExternalLinkage, valueName);
