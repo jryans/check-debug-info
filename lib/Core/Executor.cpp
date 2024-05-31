@@ -4853,17 +4853,10 @@ ref<klee::ConstantExpr> Executor::buildPointerToSymbolicValue(
     const llvm::PointerType *ptrType, const llvm::Twine &ptrName,
     const unsigned depth) {
   // Build the pointee value
-  // TODO: Add the nullptr case as well...?
-  // TODO: Add the array case as well...?
+  // Symbolic resolution plus lazy generation
+  // should cover `nullptr` and array cases
   auto *pointeeType = ptrType->getElementType();
-  // Default allocation leaves room for functions with pointer math
-  // (We aren't trying to detect OOB memory safety violations like traditional
-  // KLEE usage, so really this could be any number.)
-  // TODO: Switch to lazy allocation instead of these arbitrary numbers
-  unsigned pointeeCount = 2;
-  // Allocate more room for byte arrays
-  if (pointeeType == Type::getInt8Ty(pointeeType->getContext()))
-    pointeeCount = 32;
+  unsigned pointeeCount = 1;
   ObjectState *pointeeState =
       buildSymbolicValue(state, allocSite, pointeeType, ptrName + ".deref",
                          pointeeCount, depth + 1);
