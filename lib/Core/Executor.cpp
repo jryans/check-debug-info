@@ -4847,7 +4847,6 @@ bool Executor::findPointersInAggregate(llvm::Type *valueType, Handler h,
   return isAllPointers;
 }
 
-// JRS: Currently unused
 ref<klee::ConstantExpr> Executor::buildPointerToSymbolicValue(
     ExecutionState &state, const llvm::Value *allocSite,
     const llvm::PointerType *ptrType, const llvm::Twine &ptrName,
@@ -4952,8 +4951,17 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
   ObjectState *valueState =
       bindObjectInState(state, valueMemory, /*isLocal=*/true, array);
 
-  // Add value to symbolics
-  state.addSymbolic(valueMemory, array);
+  if (isa<PointerType>(valueType) && isa<Argument>(allocSite) &&
+      cast<Argument>(allocSite)->hasByValAttr()) {
+    // For `byval` arguments (which are not pointers at the source level),
+    // build concrete pointer to symbolic pointee value
+    ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
+        state, allocSite, cast<PointerType>(valueType), valueName, depth);
+    valueState->write(0, ptr);
+  } else {
+    // Other values are symbolic
+    state.addSymbolic(valueMemory, array);
+  }
 
   // JRS: This is probably being skipped at the moment, since we would need to
   // descend into the function pointer first...
