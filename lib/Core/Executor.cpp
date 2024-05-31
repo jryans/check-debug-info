@@ -2810,7 +2810,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
       ref<Expr> v = eval(ki, 0, state).value;
 
       ExecutionState *free = &state;
-      bool hasInvalid = false, first = true;
+      bool first = true;
 
       /* XXX This is wasteful, no need to do a full evaluate since we
          have already got a value. But in the end the caches should
@@ -2837,10 +2837,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
             executeCall(*res.first, ki, f, arguments);
           } else {
-            if (!hasInvalid) {
-              terminateStateOnExecError(state, "invalid function pointer");
-              hasInvalid = true;
-            }
+            terminateStateOnExecError(*res.first, "invalid function pointer");
           }
         }
 
