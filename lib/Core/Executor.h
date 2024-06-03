@@ -359,7 +359,8 @@ private:
   buildPointerToSymbolicValue(ExecutionState &state,
                               const llvm::Value *allocSite,
                               const llvm::PointerType *ptrType,
-                              const llvm::Twine &ptrName, const unsigned depth);
+                              const llvm::Twine &ptrName,
+                              const unsigned depth = 1);
 
   /// Build a symbolic value for a given LLVM type. The high-level goal is for
   /// data to be symbolic, but any pointers are made concrete to avoid symbolic

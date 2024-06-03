@@ -4964,17 +4964,8 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
   ObjectState *valueState =
       bindObjectInState(state, valueMemory, /*isLocal=*/true, array);
 
-  if (isa<PointerType>(valueType) && isa<Argument>(allocSite) &&
-      cast<Argument>(allocSite)->hasByValAttr()) {
-    // For `byval` arguments (which are not pointers at the source level),
-    // build concrete pointer to symbolic pointee value
-    ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
-        state, allocSite, cast<PointerType>(valueType), valueName, depth);
-    valueState->write(0, ptr);
-  } else {
-    // Other values are symbolic
-    state.addSymbolic(valueMemory, array);
-  }
+  // Add value to symbolics
+  state.addSymbolic(valueMemory, array);
 
   // JRS: This is probably being skipped at the moment, since we would need to
   // descend into the function pointer first...
@@ -5011,8 +5002,21 @@ void Executor::enterIndependentFunction(ExecutionState &state, KFunction *kf) {
     // Build a symbolic value for the argument
     auto *argType = arg->getType();
     llvm::SmallString<32> argName = getArgName(f, arg);
-    const ObjectState *argState =
+    ObjectState *argState =
         buildSymbolicValue(state, arg, argType, argName);
+
+    if (isa<PointerType>(argType) && arg->hasByValAttr()) {
+      // For `byval` arguments (which are not pointers at the source level),
+      // build concrete pointer to symbolic pointee value
+      if (DebugExecutionTrace)
+        *execTraceText << "Arg " << argName
+                       << " is `byval`, creating concrete pointer…\n";
+      ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
+          state, arg, cast<PointerType>(argType), argName);
+      argState->write(0, ptr);
+      if (DebugExecutionTrace)
+        *execTraceText << "Arg " << argName << " set to: " << ptr << "\n";
+    }
 
     // Rebind argument value as result of load from new symbolic memory
     const unsigned argTypeSizeBits =
