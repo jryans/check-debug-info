@@ -17,6 +17,7 @@
 #include "klee/Core/ExecutionState.h"
 #include "klee/Expr/ArrayCache.h"
 #include "klee/Expr/Expr.h"
+#include "klee/Module/Printing.h"
 #include "klee/Support/OptionCategories.h"
 #include "klee/Solver/Solver.h"
 #include "klee/Support/ErrorHandling.h"
@@ -58,12 +59,12 @@ void MemoryObject::getAllocInfo(std::string &result) const {
   if (allocSite) {
     info << " allocated at ";
     if (const Instruction *i = dyn_cast<Instruction>(allocSite)) {
-      info << i->getParent()->getParent()->getName() << "():";
-      info << *i;
+      info << i->getParent()->getParent()->getName() << "(): ";
+      info << printInstruction(*i);
     } else if (const GlobalValue *gv = dyn_cast<GlobalValue>(allocSite)) {
-      info << "global:" << gv->getName();
+      info << "global: " << gv->getName();
     } else {
-      info << "value:" << *allocSite;
+      info << "value: " << *allocSite;
     }
   } else {
     info << " (no allocation info)";

@@ -4647,7 +4647,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
         *execTraceText
             << "Generating additional object for pointer acquisition\n"
             << "  Name: " << name << "\n"
-            << "  Inst: " << *inst << "\n";
+            << "  Inst: " << printInstruction(*inst) << "\n";
       buildPointerToSymbolicValue(state, inst, ptrType, name);
     }
   }
