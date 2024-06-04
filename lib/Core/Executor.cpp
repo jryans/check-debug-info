@@ -5008,19 +5008,29 @@ void Executor::enterIndependentFunction(ExecutionState &state, KFunction *kf) {
     ObjectState *argState =
         buildSymbolicValue(state, arg, argType, argName);
 
-    if (isa<PointerType>(argType) && arg->hasByValAttr()) {
-      // For `byval` arguments (which are not pointers at the source level),
-      // build concrete pointer to symbolic pointee value
-      if (DebugExecutionTrace)
-        *execTraceText << "Arg is `byval`, creating concrete pointer\n"
-                       << "  Name: " << argName << "\n";
-      ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
-          state, arg, cast<PointerType>(argType), argName);
-      argState->write(0, ptr);
-      if (DebugExecutionTrace)
-        *execTraceText << "Arg is `byval`, created concrete pointer\n"
-                       << "  Name: " << argName << "\n"
-                       << "  Ptr:  " << ptr << "\n";
+    if (isa<PointerType>(argType)) {
+      if (arg->hasByValAttr()) {
+        // For `byval` arguments (which are not pointers at the source level),
+        // build concrete pointer to symbolic pointee value
+        if (DebugExecutionTrace)
+          *execTraceText << "Arg is `byval`, creating concrete pointer\n"
+                         << "  Name: " << argName << "\n";
+        ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
+            state, arg, cast<PointerType>(argType), argName);
+        argState->write(0, ptr);
+        if (DebugExecutionTrace)
+          *execTraceText << "Arg is `byval`, created concrete pointer\n"
+                         << "  Name: " << argName << "\n"
+                         << "  Ptr:  " << ptr << "\n";
+      } else {
+        // For other pointer arguments, generate an object to cover the new
+        // object case, but leave pointer symbolic.
+        if (DebugExecutionTrace)
+          *execTraceText << "Generating additional object for pointer arg\n"
+                         << "  Name: " << argName << "\n";
+        buildPointerToSymbolicValue(state, arg, cast<PointerType>(argType),
+                                    argName);
+      }
     }
 
     // Rebind argument value as result of load from new symbolic memory
