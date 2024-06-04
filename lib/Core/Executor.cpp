@@ -1820,7 +1820,7 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
 
     if (DebugExecutionTrace)
       *execTraceText << "Function independent mode active, skipping call to `"
-                     << f->getName() << "`…\n";
+                     << f->getName() << "`\n";
 
     // Any additional variadic arguments are currently ignored
     // TODO: Process variadic pointer arguments similar to the loop below
@@ -1879,7 +1879,7 @@ void Executor::executeCall(ExecutionState &state, KInstruction *ki, Function *f,
 
       if (DebugExecutionTrace)
         *execTraceText << "Resetting storage for non-const pointer argument `"
-                       << argName << "` to symbolic…\n";
+                       << argName << "` to symbolic\n";
 
       // Find the associated `MemoryObject` for concrete pointers
       auto *address = dyn_cast<klee::ConstantExpr>(arguments[k]);
@@ -4920,10 +4920,14 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
   unsigned storeSizeBits = storeSizeBytes * 8;
 
   if (DebugExecutionTrace) {
-    *execTraceText << "Building symbolic value for " << *valueType;
+    *execTraceText << "Building symbolic value\n"
+                   << "  Name: " << valueName << "\n"
+                   << "  Type: " << *valueType;
     if (count > 1)
       *execTraceText << " x " << count;
-    *execTraceText << " " << valueName << " (" << storeSizeBits << "b)…\n";
+    *execTraceText << "\n"
+                   << "  Size: " << storeSizeBits << "b, " << storeSizeBytes
+                   << "B\n";
   }
 
   // Check depth
@@ -4979,10 +4983,9 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
   }
 
   if (DebugExecutionTrace) {
-    *execTraceText << "Built symbolic value for " << valueName;
-    if (count > 1)
-      *execTraceText << " x " << count;
-    *execTraceText << ": " << valueState->read(0, storeSizeBits) << "\n";
+    *execTraceText << "Built symbolic value\n"
+                   << "  Name: " << valueName << "\n"
+                   << "  Val:  " << valueState->read(0, storeSizeBits) << "\n";
   }
 
   return valueState;
@@ -4993,7 +4996,7 @@ void Executor::enterIndependentFunction(ExecutionState &state, KFunction *kf) {
 
   if (DebugExecutionTrace)
     *execTraceText << "Entering function " << kf->getName()
-                   << ", making args symbolic…\n";
+                   << ", making args symbolic\n";
 
   // Treat each argument as if it were made symbolic
   for (unsigned k = 0, numArgs = kf->numArgs; k < numArgs; ++k) {
@@ -5009,13 +5012,15 @@ void Executor::enterIndependentFunction(ExecutionState &state, KFunction *kf) {
       // For `byval` arguments (which are not pointers at the source level),
       // build concrete pointer to symbolic pointee value
       if (DebugExecutionTrace)
-        *execTraceText << "Arg " << argName
-                       << " is `byval`, creating concrete pointer…\n";
+        *execTraceText << "Arg is `byval`, creating concrete pointer\n"
+                       << "  Name: " << argName << "\n";
       ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
           state, arg, cast<PointerType>(argType), argName);
       argState->write(0, ptr);
       if (DebugExecutionTrace)
-        *execTraceText << "Arg " << argName << " set to: " << ptr << "\n";
+        *execTraceText << "Arg is `byval`, created concrete pointer\n"
+                       << "  Name: " << argName << "\n"
+                       << "  Ptr:  " << ptr << "\n";
     }
 
     // Rebind argument value as result of load from new symbolic memory
