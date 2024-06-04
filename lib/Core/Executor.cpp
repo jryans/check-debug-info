@@ -4636,17 +4636,20 @@ void Executor::executeMemoryOperation(ExecutionState &state,
   // In independent function mode, we assume that by reaching this code path,
   // we have an address expression that could potentially point to multiple
   // objects. To cover more program paths, we lazily generate an additional
-  // object now before resolving the address.
+  // object when acquiring pointers.
   if (interpreterOpts.IndependentFunctions && !isWrite) {
     const auto *inst = target->inst;
-    Type *pointeeType = cast<LoadInst>(inst)->getType();
-    const auto instInfo = kmodule->infos->getInfo(*inst);
-    const auto name = "ll" + std::to_string(instInfo.assemblyLine) + ".new";
-    if (DebugExecutionTrace)
-      *execTraceText << "Generating additional object for symbolic pointer\n"
-                     << "  Name: " << name << "\n"
-                     << "  Inst: " << *inst << "\n";
-    buildSymbolicValue(state, inst, pointeeType, name);
+    Type *valueType = cast<LoadInst>(inst)->getType();
+    if (const auto *ptrType = dyn_cast<PointerType>(valueType)) {
+      const auto instInfo = kmodule->infos->getInfo(*inst);
+      const auto name = "ll" + std::to_string(instInfo.assemblyLine) + ".new";
+      if (DebugExecutionTrace)
+        *execTraceText
+            << "Generating additional object for pointer acquisition\n"
+            << "  Name: " << name << "\n"
+            << "  Inst: " << *inst << "\n";
+      buildPointerToSymbolicValue(state, inst, ptrType, name);
+    }
   }
 
   address = optimizer.optimizeExpr(address, true);
