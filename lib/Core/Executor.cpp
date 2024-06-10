@@ -4607,7 +4607,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
           << "  " << allocInfo << "\n"
           << "  Name: " << mo->name << "\n"
           << "  Base: " << format("0x%08zX", mo->address)
-          << ", size: " << mo->size << "\n"
+          << ", size: " << mo->size << " B\n"
           << "  Bounds check: " << check << "\n";
     }
 
@@ -4703,7 +4703,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
           << "  " << allocInfo << "\n"
           << "  Name: " << mo->name << "\n"
           << "  Base: " << format("0x%08zX", mo->address)
-          << ", size: " << mo->size << "\n"
+          << ", size: " << mo->size << " B\n"
           << "  Bounds check: " << inBounds << "\n";
     }
 
