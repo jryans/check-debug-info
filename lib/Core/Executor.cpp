@@ -4596,6 +4596,18 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     ref<Expr> check = mo->getBoundsCheckOffset(offset, bytes);
     check = optimizer.optimizeExpr(check, true);
 
+    if (DebugExecutionTrace) {
+      std::string allocInfo;
+      mo->getAllocInfo(allocInfo);
+      *execTraceText
+          << "Potential in-bounds object found via single symbolic resolution\n"
+          << "  " << allocInfo << "\n"
+          << "  Name: " << mo->name << "\n"
+          << "  Base: " << format("0x%08zX", mo->address)
+          << ", size: " << mo->size << "\n"
+          << "  Bounds check: " << check << "\n";
+    }
+
     bool inBounds;
     solver->setTimeout(coreSolverTimeout);
     bool success = solver->mustBeTrue(state.constraints, check, inBounds,
@@ -4605,6 +4617,15 @@ void Executor::executeMemoryOperation(ExecutionState &state,
       state.pc = state.prevPC;
       terminateStateOnSolverError(state, "Query timed out (bounds check).");
       return;
+    }
+
+    if (DebugExecutionTrace) {
+      *execTraceText << "Solver determined:\n";
+      *execTraceText << "  In-bounds:     ";
+      if (inBounds)
+        *execTraceText << "s" << state.id << "\n";
+      else
+        *execTraceText << "retry via multiple resolution path\n";
     }
 
     if (inBounds) {
