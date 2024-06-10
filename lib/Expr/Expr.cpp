@@ -748,7 +748,6 @@ static ref<Expr> XorExpr_create(Expr *l, Expr *r);
 
 static ref<Expr> EqExpr_createPartial(Expr *l, const ref<ConstantExpr> &cr);
 static ref<Expr> AndExpr_createPartialR(const ref<ConstantExpr> &cl, Expr *r);
-static ref<Expr> SubExpr_createPartialR(const ref<ConstantExpr> &cl, Expr *r);
 static ref<Expr> XorExpr_createPartialR(const ref<ConstantExpr> &cl, Expr *r);
 
 static ref<Expr> AddExpr_createPartialR(const ref<ConstantExpr> &cl, Expr *r) {
@@ -799,34 +798,11 @@ static ref<Expr> AddExpr_create(Expr *l, Expr *r) {
   }  
 }
 
-static ref<Expr> SubExpr_createPartialR(const ref<ConstantExpr> &cl, Expr *r) {
-  Expr::Width type = cl->getWidth();
-
-  if (type==Expr::Bool) {
-    return XorExpr_createPartialR(cl, r);
-  } else {
-    Expr::Kind rk = r->getKind();
-    if (rk==Expr::Add && isa<ConstantExpr>(r->getKid(0))) { // A - (B+c) == (A-B) - c
-      return SubExpr::create(SubExpr::create(cl, r->getKid(0)),
-                             r->getKid(1));
-    } else if (rk==Expr::Sub && isa<ConstantExpr>(r->getKid(0))) { // A - (B-c) == (A-B) + c
-      return AddExpr::create(SubExpr::create(cl, r->getKid(0)),
-                             r->getKid(1));
-    } else {
-      return SubExpr::alloc(cl, r);
-    }
-  }
-}
-static ref<Expr> SubExpr_createPartial(Expr *l, const ref<ConstantExpr> &cr) {
-  // l - c => l + (-c)
-  return AddExpr_createPartial(l, 
-                               ConstantExpr::alloc(0, cr->getWidth())->Sub(cr));
-}
-static ref<Expr> SubExpr_create(Expr *l, Expr *r) {
+static ref<Expr> SubExpr_create(const ref<Expr> &l, const ref<Expr> &r) {
   Expr::Width type = l->getWidth();
 
   if (type == Expr::Bool) {
-    return XorExpr_create(l, r);
+    return XorExpr_create(l.get(), r.get());
   } else if (*l==*r) {
     return ConstantExpr::alloc(0, type);
   } else {
@@ -1003,7 +979,9 @@ ref<Expr>  _e_op ::create(const ref<Expr> &l, const ref<Expr> &r) { \
 }
 
 BCREATE_R(AddExpr, Add, AddExpr_createPartial, AddExpr_createPartialR)
-BCREATE_R(SubExpr, Sub, SubExpr_createPartial, SubExpr_createPartialR)
+// JRS: `Sub` exprs preserved without folding
+// to simplify reading traces of memory operations
+BCREATE(SubExpr, Sub)
 BCREATE_R(MulExpr, Mul, MulExpr_createPartial, MulExpr_createPartialR)
 BCREATE_R(AndExpr, And, AndExpr_createPartial, AndExpr_createPartialR)
 BCREATE_R(OrExpr, Or, OrExpr_createPartial, OrExpr_createPartialR)
