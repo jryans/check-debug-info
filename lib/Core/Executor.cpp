@@ -4575,6 +4575,9 @@ void Executor::executeMemoryOperation(ExecutionState &state,
 
   address = optimizer.optimizeExpr(address, true);
 
+  if (DebugExecutionTrace)
+    *execTraceText << "  Bytes: " << bytes << "\n";
+
   // fast path: single in-bounds resolution
   ObjectPair op;
   bool success;
