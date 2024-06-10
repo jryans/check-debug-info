@@ -4950,8 +4950,8 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
     if (count > 1)
       *execTraceText << " x " << count;
     *execTraceText << "\n"
-                   << "  Size: " << storeSizeBits << "b, " << storeSizeBytes
-                   << "B\n";
+                   << "  Size: " << storeSizeBits << " b, " << storeSizeBytes
+                   << " B\n";
   }
 
   // Check depth
