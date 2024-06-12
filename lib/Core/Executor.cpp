@@ -396,6 +396,13 @@ cl::opt<unsigned> MaxSymbolicValueDepth(
     cl::init(3),
     cl::cat(TerminationCat));
 
+cl::opt<unsigned> SymbolicValueArraySize(
+    "symbolic-value-array-size",
+    cl::desc("Assume pointers target array of this size "
+             "when building symbolic data (default=32)"),
+    cl::init(32),
+    cl::cat(TerminationCat));
+
 /*** Debugging options ***/
 
 /// The different query logging solvers that can switched on/off
@@ -4892,10 +4899,14 @@ ref<klee::ConstantExpr> Executor::buildPointerToSymbolicValue(
     const llvm::PointerType *ptrType, const llvm::Twine &ptrName,
     const unsigned depth) {
   // Build the pointee value
-  // Symbolic resolution plus lazy generation
-  // should cover `nullptr` and array cases
+  // Symbolic resolution plus generation at pointer acquisition time
+  // should cover `nullptr`, new object, and existing object cases
   auto *pointeeType = ptrType->getElementType();
-  unsigned pointeeCount = 1;
+  // For pointers used as arrays, it is challenging to know the expected array
+  // size at allocation time, so we use a tunable parameter here.
+  // (We aren't trying to detect OOB memory safety violations like traditional
+  // KLEE usage, so really this could be any number.)
+  unsigned pointeeCount = SymbolicValueArraySize;
   ObjectState *pointeeState =
       buildSymbolicValue(state, allocSite, pointeeType, ptrName + ".deref",
                          pointeeCount, depth + 1);
