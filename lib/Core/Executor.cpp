@@ -4550,7 +4550,8 @@ void Executor::executeMemoryOperation(ExecutionState &state,
                                       ref<Expr> address,
                                       ref<Expr> value /* undef if read */,
                                       KInstruction *target /* undef if write */) {
-  if (!isWrite && target->inst->isVolatile()) {
+  if (interpreterOpts.IndependentFunctions && !isWrite &&
+      target->inst->isVolatile()) {
     LoadInst *inst = cast<LoadInst>(target->inst);
     // For volatile loads, build a symbolic value
     auto *instType = inst->getType();
