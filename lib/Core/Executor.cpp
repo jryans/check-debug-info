@@ -4672,14 +4672,37 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     const auto *inst = target->inst;
     Type *valueType = cast<LoadInst>(inst)->getType();
     if (const auto *ptrType = dyn_cast<PointerType>(valueType)) {
+      const auto *pointeeType = ptrType->getElementType();
       const auto instInfo = kmodule->infos->getInfo(*inst);
       const auto name = "ll" + std::to_string(instInfo.assemblyLine) + ".new";
-      if (DebugExecutionTrace)
-        *execTraceText
-            << "Generating additional object for pointer acquisition\n"
-            << "  Name: " << name << "\n"
-            << "  Inst: " << printInstruction(*inst) << "\n";
-      buildPointerToSymbolicValue(state, inst, ptrType, name);
+      if (isa<FunctionType>(pointeeType)) {
+        // For function pointers (which are skipped in this mode),
+        // build concrete pointer to symbolic pointee value
+        if (DebugExecutionTrace)
+          *execTraceText << "Function pointer acquisition, "
+                         << "creating concrete pointer\n"
+                         << "  Name: " << name << "\n"
+                         << "  Inst: " << printInstruction(*inst) << "\n";
+        ref<ConstantExpr> ptr =
+            buildPointerToSymbolicValue(state, inst, ptrType, name);
+        bindLocal(target, state, ptr);
+        if (DebugExecutionTrace)
+          *execTraceText << "Function pointer acquisition, "
+                         << "created concrete pointer\n"
+                         << "  Name: " << name << "\n"
+                         << "  Inst: " << printInstruction(*inst) << "\n"
+                         << "  Ptr:  " << ptr << "\n";
+        return;
+      } else {
+        // For other pointers, generate an object to cover the new object case,
+        // but leave pointer symbolic.
+        if (DebugExecutionTrace)
+          *execTraceText
+              << "Generating additional object for pointer acquisition\n"
+              << "  Name: " << name << "\n"
+              << "  Inst: " << printInstruction(*inst) << "\n";
+        buildPointerToSymbolicValue(state, inst, ptrType, name);
+      }
     }
   }
 
@@ -5009,8 +5032,6 @@ ObjectState *Executor::buildSymbolicValue(ExecutionState &state,
   // Add value to symbolics
   state.addSymbolic(valueMemory, array);
 
-  // JRS: This is probably being skipped at the moment, since we would need to
-  // descend into the function pointer first...
   if (auto *funcType = dyn_cast<FunctionType>(valueType)) {
     auto *func =
         Function::Create(funcType, GlobalValue::ExternalLinkage, valueName);
@@ -5047,27 +5068,31 @@ void Executor::enterIndependentFunction(ExecutionState &state, KFunction *kf) {
         buildSymbolicValue(state, arg, argType, argName);
 
     if (isa<PointerType>(argType)) {
-      if (arg->hasByValAttr()) {
-        // For `byval` arguments (which are not pointers at the source level),
+      const auto *ptrType = cast<PointerType>(argType);
+      const auto *pointeeType = ptrType->getElementType();
+      if (arg->hasByValAttr() || isa<FunctionType>(pointeeType)) {
+        // For `byval` arguments (which are not pointers at the source level)
+        // and function pointers (which are skipped in this mode),
         // build concrete pointer to symbolic pointee value
         if (DebugExecutionTrace)
-          *execTraceText << "Arg is `byval`, creating concrete pointer\n"
+          *execTraceText << "Arg is `byval` or function, "
+                         << "creating concrete pointer\n"
                          << "  Name: " << argName << "\n";
-        ref<ConstantExpr> ptr = buildPointerToSymbolicValue(
-            state, arg, cast<PointerType>(argType), argName);
+        ref<ConstantExpr> ptr =
+            buildPointerToSymbolicValue(state, arg, ptrType, argName);
         argState->write(0, ptr);
         if (DebugExecutionTrace)
-          *execTraceText << "Arg is `byval`, created concrete pointer\n"
+          *execTraceText << "Arg is `byval` or function, "
+                         << "created concrete pointer\n"
                          << "  Name: " << argName << "\n"
                          << "  Ptr:  " << ptr << "\n";
       } else {
-        // For other pointer arguments, generate an object to cover the new
-        // object case, but leave pointer symbolic.
+        // For other pointers, generate an object to cover the new object case,
+        // but leave pointer symbolic.
         if (DebugExecutionTrace)
           *execTraceText << "Generating additional object for pointer arg\n"
                          << "  Name: " << argName << "\n";
-        buildPointerToSymbolicValue(state, arg, cast<PointerType>(argType),
-                                    argName);
+        buildPointerToSymbolicValue(state, arg, ptrType, argName);
       }
     }
 
