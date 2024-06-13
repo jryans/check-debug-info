@@ -4570,6 +4570,46 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     return;
   }
 
+  // In independent function mode, we lazily generate an additional object when
+  // acquiring pointers.
+  if (interpreterOpts.IndependentFunctions && !isWrite) {
+    const auto *inst = target->inst;
+    Type *valueType = cast<LoadInst>(inst)->getType();
+    if (const auto *ptrType = dyn_cast<PointerType>(valueType)) {
+      const auto *pointeeType = ptrType->getElementType();
+      const auto instInfo = kmodule->infos->getInfo(*inst);
+      const auto name = "ll" + std::to_string(instInfo.assemblyLine) + ".new";
+      if (isa<FunctionType>(pointeeType)) {
+        // For function pointers (which are skipped in this mode),
+        // build concrete pointer to symbolic pointee value
+        if (DebugExecutionTrace)
+          *execTraceText << "Function pointer acquisition, "
+                         << "creating concrete pointer\n"
+                         << "  Name: " << name << "\n"
+                         << "  Inst: " << printInstruction(*inst) << "\n";
+        ref<ConstantExpr> ptr =
+            buildPointerToSymbolicValue(state, inst, ptrType, name);
+        bindLocal(target, state, ptr);
+        if (DebugExecutionTrace)
+          *execTraceText << "Function pointer acquisition, "
+                         << "created concrete pointer\n"
+                         << "  Name: " << name << "\n"
+                         << "  Inst: " << printInstruction(*inst) << "\n"
+                         << "  Ptr:  " << ptr << "\n";
+        return;
+      } else {
+        // For other pointers, generate an object to cover the new object case,
+        // but leave pointer symbolic.
+        if (DebugExecutionTrace)
+          *execTraceText
+              << "Generating additional object for pointer acquisition\n"
+              << "  Name: " << name << "\n"
+              << "  Inst: " << printInstruction(*inst) << "\n";
+        buildPointerToSymbolicValue(state, inst, ptrType, name);
+      }
+    }
+  }
+
   Expr::Width type = (isWrite ? value->getWidth() : 
                      getWidthForLLVMType(target->inst->getType()));
   unsigned bytes = Expr::getMinBytesForWidth(type);
@@ -4664,48 +4704,6 @@ void Executor::executeMemoryOperation(ExecutionState &state,
 
   // we are on an error path (no resolution, multiple resolution, one
   // resolution with out of bounds)
-
-  // In independent function mode, we assume that by reaching this code path,
-  // we have an address expression that could potentially point to multiple
-  // objects. To cover more program paths, we lazily generate an additional
-  // object when acquiring pointers.
-  if (interpreterOpts.IndependentFunctions && !isWrite) {
-    const auto *inst = target->inst;
-    Type *valueType = cast<LoadInst>(inst)->getType();
-    if (const auto *ptrType = dyn_cast<PointerType>(valueType)) {
-      const auto *pointeeType = ptrType->getElementType();
-      const auto instInfo = kmodule->infos->getInfo(*inst);
-      const auto name = "ll" + std::to_string(instInfo.assemblyLine) + ".new";
-      if (isa<FunctionType>(pointeeType)) {
-        // For function pointers (which are skipped in this mode),
-        // build concrete pointer to symbolic pointee value
-        if (DebugExecutionTrace)
-          *execTraceText << "Function pointer acquisition, "
-                         << "creating concrete pointer\n"
-                         << "  Name: " << name << "\n"
-                         << "  Inst: " << printInstruction(*inst) << "\n";
-        ref<ConstantExpr> ptr =
-            buildPointerToSymbolicValue(state, inst, ptrType, name);
-        bindLocal(target, state, ptr);
-        if (DebugExecutionTrace)
-          *execTraceText << "Function pointer acquisition, "
-                         << "created concrete pointer\n"
-                         << "  Name: " << name << "\n"
-                         << "  Inst: " << printInstruction(*inst) << "\n"
-                         << "  Ptr:  " << ptr << "\n";
-        return;
-      } else {
-        // For other pointers, generate an object to cover the new object case,
-        // but leave pointer symbolic.
-        if (DebugExecutionTrace)
-          *execTraceText
-              << "Generating additional object for pointer acquisition\n"
-              << "  Name: " << name << "\n"
-              << "  Inst: " << printInstruction(*inst) << "\n";
-        buildPointerToSymbolicValue(state, inst, ptrType, name);
-      }
-    }
-  }
 
   address = optimizer.optimizeExpr(address, true);
   ResolutionList rl;  
