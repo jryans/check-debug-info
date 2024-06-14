@@ -4573,13 +4573,22 @@ void Executor::executeMemoryOperation(ExecutionState &state,
   // In independent function mode, we lazily generate an additional object when
   // acquiring pointers.
   if (interpreterOpts.IndependentFunctions && !isWrite) {
-    const auto *inst = target->inst;
-    Type *valueType = cast<LoadInst>(inst)->getType();
+    const auto *inst = cast<LoadInst>(target->inst);
+    Type *valueType = inst->getType();
     if (const auto *ptrType = dyn_cast<PointerType>(valueType)) {
+      const auto *pointerOp = inst->getPointerOperand();
       const auto *pointeeType = ptrType->getElementType();
       const auto instInfo = kmodule->infos->getInfo(*inst);
       const auto name = "ll" + std::to_string(instInfo.assemblyLine) + ".new";
-      if (isa<FunctionType>(pointeeType)) {
+      if (isa<AllocaInst>(pointerOp)) {
+        // Loading a pointer directly from an `alloca` does not count as
+        // "acquisition", so this case skips object generation
+        if (DebugExecutionTrace)
+          *execTraceText
+              << "Pointer acquisition from `alloca`, "
+              << "skipping object generation\n"
+              << "  Inst: " << printInstruction(*inst) << "\n";
+      } else if (isa<FunctionType>(pointeeType)) {
         // For function pointers (which are skipped in this mode),
         // build concrete pointer to symbolic pointee value
         if (DebugExecutionTrace)
