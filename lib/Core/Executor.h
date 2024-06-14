@@ -349,11 +349,6 @@ private:
   void executeMakeSymbolic(ExecutionState &state, const MemoryObject *mo,
                            const std::string &name);
 
-  template <typename Handler>
-  bool findPointersInAggregate(llvm::Type *valueType, Handler h,
-                               const llvm::Twine &relPath = "",
-                               const unsigned relOffset = 0);
-
   /// Build concrete pointer to symbolic pointee value
   ref<klee::ConstantExpr>
   buildPointerToSymbolicValue(ExecutionState &state,

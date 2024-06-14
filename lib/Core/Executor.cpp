@@ -4876,55 +4876,6 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
   }
 }
 
-// JRS: Currently unused
-template <typename Handler>
-bool Executor::findPointersInAggregate(llvm::Type *valueType, Handler h,
-                                       const llvm::Twine &relPath,
-                                       const unsigned relOffset) {
-  // As a side task, track whether every element is a pointer
-  bool isAllPointers = true;
-
-  if (auto *structType = dyn_cast<StructType>(valueType)) {
-    const StructLayout *layout =
-        kmodule->targetData->getStructLayout(structType);
-    // Check each struct element for pointers
-    for (unsigned i = 0, e = structType->getNumElements(); i < e; ++i) {
-      auto *elementType = structType->getElementType(i);
-      const auto &elemPath = relPath + ".e" + std::to_string(i);
-      const auto elemOffset = relOffset + layout->getElementOffset(i);
-      if (const auto *ptrType = dyn_cast<PointerType>(elementType)) {
-        // Provide handler the pointer type, name, and offset
-        h(ptrType, elemPath, elemOffset);
-      } else if (isa<StructType>(elementType) || isa<ArrayType>(elementType)) {
-        isAllPointers &=
-            findPointersInAggregate(elementType, h, elemPath, elemOffset);
-      } else {
-        isAllPointers = false;
-      }
-    }
-  } else if (auto *arrayType = dyn_cast<ArrayType>(valueType)) {
-    auto *elementType = arrayType->getElementType();
-    const auto elementSizeBytes =
-        kmodule->targetData->getTypeAllocSize(elementType);
-    // Check each array element for pointers
-    for (unsigned i = 0, e = arrayType->getNumElements(); i < e; ++i) {
-      const auto &elemPath = relPath + ".e" + std::to_string(i);
-      const auto elemOffset = relOffset + (i * elementSizeBytes);
-      if (const auto *ptrType = dyn_cast<PointerType>(elementType)) {
-        // Provide handler the pointer type, name, and offset
-        h(ptrType, elemPath, elemOffset);
-      } else if (isa<StructType>(elementType) || isa<ArrayType>(elementType)) {
-        isAllPointers &=
-            findPointersInAggregate(elementType, h, elemPath, elemOffset);
-      } else {
-        isAllPointers = false;
-      }
-    }
-  }
-
-  return isAllPointers;
-}
-
 ref<klee::ConstantExpr> Executor::buildPointerToSymbolicValue(
     ExecutionState &state, const llvm::Value *allocSite,
     const llvm::PointerType *ptrType, const llvm::Twine &ptrName,
