@@ -247,9 +247,10 @@ StatsTracker::StatsTracker(Executor &_executor, std::string _objectFilename,
   // Add timer to calculate uncovered instructions if needed by the solver
   if (updateMinDistToUncovered) {
     computeReachableUncovered();
-    executor.timers.add(std::make_unique<Timer>(time::Span{UncoveredUpdateInterval}, [&]{
-      computeReachableUncovered();
-    }));
+    const auto uncoveredUpdateInterval = time::Span{UncoveredUpdateInterval};
+    if (uncoveredUpdateInterval)
+      executor.timers.add(std::make_unique<Timer>(
+          uncoveredUpdateInterval, [&] { computeReachableUncovered(); }));
   }
 
   if (OutputIStats) {
