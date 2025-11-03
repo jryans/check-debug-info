@@ -128,8 +128,7 @@ std::string printModule(const Module &module) {
     if (const auto *variable = cast<DILocalVariable>(mdNode)) {
       std::string varInline;
       raw_string_ostream varInlineOut(varInline);
-      varInlineOut << ", \"" << variable->getName() << "\"";
-      varInlineOut << " l" << variable->getLine();
+      varInlineOut << ", name: \"" << variable->getName() << "\"";
       varInlineOut.flush();
       str.replace(match.position(), match.length(), varInline);
     }
@@ -155,7 +154,7 @@ std::string printModule(const Module &module) {
       raw_string_ostream locInlineOut(locInline);
       auto line = location->getLine();
       if (line)
-        locInlineOut << ", l" << line << " c" << location->getColumn();
+        locInlineOut << ", l: " << line << " c: " << location->getColumn();
       locInlineOut.flush();
       str.replace(match.position(), match.length(), locInline);
     }
